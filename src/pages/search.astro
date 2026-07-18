@@ -1,0 +1,297 @@
+---
+export const prerender = false;
+
+import { env } from "cloudflare:workers";
+import { search } from "emdash";
+import Base from "../layouts/Base.astro";
+
+const query = Astro.url.searchParams.get("q")?.trim() || "";
+const mode = Astro.url.searchParams.get("mode") === "ai" ? "ai" : "keyword";
+
+// AI Search binding — only present once the ai_search binding in
+// wrangler.jsonc is enabled (see comments there). Falls back to FTS.
+const searchBinding = (env as { SEARCH?: AiSearchInstance }).SEARCH;
+
+interface AiSource {
+	url: string;
+	title: string;
+	lang?: string;
+	score: number;
+}
+
+let aiAnswer: string | null = null;
+let aiSources: AiSource[] = [];
+let aiError: string | null = null;
+let ftsResults: Awaited<ReturnType<typeof search>>["items"] = [];
+
+if (query && mode === "ai" && searchBinding) {
+	try {
+		const [chat, retrieval] = await Promise.all([
+			searchBinding.chatCompletions({
+				messages: [{ role: "user", content: query }],
+			}),
+			searchBinding.search({
+				query,
+				ai_search_options: { retrieval: { max_num_results: 8 } },
+			}),
+		]);
+		aiAnswer = chat.choices?.[0]?.message?.content ?? null;
+		const seen = new Set<string>();
+		for (const chunk of [...(chat.chunks ?? []), ...(retrieval.chunks ?? [])]) {
+			const meta = (chunk.item?.metadata ?? {}) as Record<string, unknown>;
+			const url = typeof meta.url === "string" ? meta.url : null;
+			if (!url || seen.has(url)) continue;
+			seen.add(url);
+			aiSources.push({
+				url,
+				title: typeof meta.title === "string" ? meta.title : url,
+				lang: typeof meta.lang === "string" ? meta.lang : undefined,
+				score: chunk.score,
+			});
+		}
+		aiSources = aiSources.slice(0, 8);
+	} catch (error) {
+		aiError = error instanceof Error ? error.message : String(error);
+	}
+}
+
+// Keyword mode — or fallback when AI search is unavailable/failed
+const useFts = Boolean(query) && (mode === "keyword" || !searchBinding || aiError);
+if (useFts) {
+	const { items } = await search(query, {
+		collections: ["posts", "pages", "activities"],
+		limit: 30,
+	});
+	ftsResults = items;
+}
+
+function resultHref(result: { collection?: string; slug?: string | null; id: string }): string {
+	const slug = result.slug ?? result.id;
+	if (result.collection === "pages") return slug === "about" ? "/about" : `/pages/${slug}`;
+	if (result.collection === "activities") return "/activities";
+	return `/posts/${slug}`;
+}
+---
+
+<Base title={query ? `Search: ${query}` : "Search"} description="記事検索(全文検索 + AI検索)">
+	<h1 class="page-title">Search</h1>
+
+	<form method="get" action="/search" class="search-form">
+		<input
+			type="search"
+			name="q"
+			value={query}
+			placeholder="キーワード、または AI への質問..."
+			class="search-input"
+			autofocus
+		/>
+		<button type="submit" name="mode" value="keyword" class="search-button">検索</button>
+		<button type="submit" name="mode" value="ai" class="search-button search-button--ai">
+			AI に聞く
+		</button>
+	</form>
+
+	{
+		mode === "ai" && query && !searchBinding && (
+			<p class="notice">
+				AI 検索は Cloudflare にデプロイされた環境でのみ利用できます(ローカルでは全文検索に
+				フォールバックします)。
+			</p>
+		)
+	}
+	{mode === "ai" && aiError && <p class="notice">AI 検索でエラーが発生したため、全文検索の結果を表示しています: {aiError}</p>}
+
+	{
+		aiAnswer && (
+			<section class="ai-answer">
+				<h2 class="section-label">AI の回答</h2>
+				<p class="ai-answer-text">{aiAnswer}</p>
+				{aiSources.length > 0 && (
+					<ol class="ai-sources">
+						{aiSources.map((source) => (
+							<li>
+								<a href={source.url}>{source.title}</a>
+								{source.lang === "en" && <span class="lang-badge">EN</span>}
+							</li>
+						))}
+					</ol>
+				)}
+				<p class="ai-note">回答は Cloudflare AI Search (RAG) による自動生成です。</p>
+			</section>
+		)
+	}
+
+	{
+		useFts && (
+			<>
+				{query && (
+					<p class="search-summary">
+						{ftsResults.length === 0
+							? `「${query}」に一致する結果はありませんでした`
+							: `「${query}」の検索結果: ${ftsResults.length}件`}
+					</p>
+				)}
+				<ol class="search-results">
+					{ftsResults.map((result) => (
+						<li class="search-result">
+							<a href={resultHref(result)} class="result-title">
+								{result.title ?? "Untitled"}
+							</a>
+							{result.snippet && <p class="result-snippet" set:html={result.snippet} />}
+						</li>
+					))}
+				</ol>
+			</>
+		)
+	}
+
+	{!query && <p class="hint">キーワード検索、または「AI に聞く」で記事内容への質問ができます。</p>}
+</Base>
+
+<style>
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.search-form {
+		display: flex;
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-6);
+		flex-wrap: wrap;
+	}
+
+	.search-input {
+		flex: 1;
+		min-width: 200px;
+		padding: var(--spacing-2) var(--spacing-3);
+		font-size: var(--font-size-base);
+		font-family: var(--font-body);
+		border: 1px solid var(--input);
+		border-radius: var(--radius);
+		background: var(--color-bg);
+		color: var(--color-text);
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px var(--color-brand-ring);
+	}
+
+	.search-button {
+		padding: var(--spacing-2) var(--spacing-4);
+		font-size: var(--font-size-sm);
+		font-family: var(--font-body);
+		background: var(--primary);
+		color: var(--primary-foreground);
+		border: none;
+		border-radius: var(--radius);
+		cursor: pointer;
+	}
+
+	.search-button--ai {
+		background: var(--secondary);
+		color: var(--secondary-foreground);
+		border: 1px solid var(--border);
+	}
+
+	.search-button:hover {
+		opacity: 0.9;
+	}
+
+	.notice {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		border-left: 2px solid var(--color-border);
+		padding-left: var(--spacing-3);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.ai-answer {
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		padding: var(--spacing-4);
+		margin-bottom: var(--spacing-6);
+		background: var(--color-bg-subtle);
+	}
+
+	.section-label {
+		font-size: var(--font-size-xs);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+		color: var(--color-muted);
+		margin-bottom: var(--spacing-2);
+	}
+
+	.ai-answer-text {
+		white-space: pre-wrap;
+		line-height: var(--leading-relaxed);
+		margin-bottom: var(--spacing-3);
+	}
+
+	.ai-sources {
+		list-style: decimal;
+		padding-left: 1.5em;
+		font-size: var(--font-size-sm);
+		margin-bottom: var(--spacing-2);
+	}
+
+	.lang-badge {
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+		margin-left: var(--spacing-1);
+	}
+
+	.ai-note {
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+	}
+
+	.search-summary {
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.hint {
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+	}
+
+	.search-results {
+		list-style: none;
+	}
+
+	.search-result {
+		padding: var(--spacing-3) 0;
+		border-bottom: 1px solid var(--color-border-subtle);
+	}
+
+	.search-result:last-child {
+		border-bottom: none;
+	}
+
+	.result-title {
+		color: var(--color-text);
+		font-weight: 500;
+	}
+
+	.result-title:hover {
+		color: var(--color-brand);
+	}
+
+	.result-snippet {
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+		margin-top: var(--spacing-1);
+		line-height: var(--leading-snug);
+	}
+
+	.result-snippet :global(mark) {
+		background: var(--color-brand-ring);
+		color: inherit;
+		padding: 0 0.1em;
+		border-radius: 2px;
+	}
+</style>

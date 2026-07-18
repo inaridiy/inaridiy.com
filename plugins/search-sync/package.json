@@ -1,0 +1,15 @@
+{
+	"name": "emdash-plugin-search-sync",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Pushes published content into Cloudflare AI Search on publish/save (event-driven upsert + delete)",
+	"exports": {
+		".": "./src/index.ts",
+		"./sandbox": "./src/sandbox-entry.ts",
+		"./docs": "./src/docs.ts"
+	},
+	"peerDependencies": {
+		"emdash": "^0.28.1"
+	}
+}

@@ -1,0 +1,55 @@
+---
+import { getEmDashCollection, getSiteSettings } from "emdash";
+import Base from "../../layouts/Base.astro";
+import PostList from "../../components/PostList.astro";
+import { resolveBlogSiteIdentity } from "../../utils/site-identity";
+
+const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
+
+const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
+	status: "published",
+	orderBy: { published_at: "desc" },
+	limit: 20,
+});
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+---
+
+<Base
+	title={`${siteTitle} (EN)`}
+	description="Personal blog of inaridiy — English edition (auto-translated)"
+	lang="en"
+>
+	<p class="tagline">
+		English edition. Posts are auto-translated from Japanese by an LLM via
+		Cloudflare AI Gateway — expect occasional rough edges.
+	</p>
+
+	{
+		posts.length === 0 ? (
+			<p class="empty">No posts yet.</p>
+		) : (
+			<PostList posts={posts} lang="en" />
+		)
+	}
+
+	<nav class="more">
+		<a href="/en/activities">activities →</a>
+	</nav>
+</Base>
+
+<style>
+	.tagline {
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.empty {
+		color: var(--color-text-secondary);
+	}
+
+	.more {
+		margin-top: var(--spacing-4);
+		font-size: var(--font-size-sm);
+	}
+</style>

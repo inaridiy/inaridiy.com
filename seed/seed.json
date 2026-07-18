@@ -1,0 +1,343 @@
+{
+	"$schema": "https://emdashcms.com/seed.schema.json",
+	"version": "1",
+	"meta": {
+		"name": "inaridiy.com",
+		"description": "Personal blog of inaridiy: posts, profile, and activity log",
+		"author": "inaridiy"
+	},
+	"settings": {
+		"title": "inaridiy.com",
+		"tagline": "Web と暗号とものづくりの記録"
+	},
+	"collections": [
+		{
+			"slug": "posts",
+			"label": "Posts",
+			"labelSingular": "Post",
+			"supports": ["drafts", "revisions", "search", "seo"],
+			"fields": [
+				{
+					"slug": "title",
+					"label": "Title",
+					"type": "string",
+					"required": true,
+					"searchable": true
+				},
+				{
+					"slug": "content",
+					"label": "Content",
+					"type": "portableText",
+					"searchable": true
+				},
+				{
+					"slug": "excerpt",
+					"label": "Excerpt",
+					"type": "text"
+				},
+				{
+					"slug": "featured_image",
+					"label": "OG Image",
+					"type": "image"
+				},
+				{
+					"slug": "title_en",
+					"label": "Title (EN / auto-translated)",
+					"type": "string"
+				},
+				{
+					"slug": "excerpt_en",
+					"label": "Excerpt (EN / auto-translated)",
+					"type": "text"
+				},
+				{
+					"slug": "content_en",
+					"label": "Content (EN / auto-translated)",
+					"type": "portableText"
+				}
+			]
+		},
+		{
+			"slug": "pages",
+			"label": "Pages",
+			"labelSingular": "Page",
+			"supports": ["drafts", "revisions", "search"],
+			"fields": [
+				{
+					"slug": "title",
+					"label": "Title",
+					"type": "string",
+					"required": true,
+					"searchable": true
+				},
+				{
+					"slug": "content",
+					"label": "Content",
+					"type": "portableText",
+					"searchable": true
+				},
+				{
+					"slug": "title_en",
+					"label": "Title (EN / auto-translated)",
+					"type": "string"
+				},
+				{
+					"slug": "content_en",
+					"label": "Content (EN / auto-translated)",
+					"type": "portableText"
+				}
+			]
+		},
+		{
+			"slug": "activities",
+			"label": "Activities",
+			"labelSingular": "Activity",
+			"supports": ["drafts", "search"],
+			"fields": [
+				{
+					"slug": "title",
+					"label": "Title",
+					"type": "string",
+					"required": true,
+					"searchable": true
+				},
+				{
+					"slug": "date",
+					"label": "Date",
+					"type": "datetime",
+					"required": true
+				},
+				{
+					"slug": "kind",
+					"label": "Kind (talk / oss / article / work ...)",
+					"type": "string"
+				},
+				{
+					"slug": "url",
+					"label": "URL",
+					"type": "string"
+				},
+				{
+					"slug": "description",
+					"label": "Description",
+					"type": "text",
+					"searchable": true
+				},
+				{
+					"slug": "title_en",
+					"label": "Title (EN / auto-translated)",
+					"type": "string"
+				},
+				{
+					"slug": "description_en",
+					"label": "Description (EN / auto-translated)",
+					"type": "text"
+				}
+			]
+		}
+	],
+	"taxonomies": [
+		{
+			"name": "category",
+			"label": "Categories",
+			"labelSingular": "Category",
+			"hierarchical": true,
+			"collections": ["posts"],
+			"terms": [
+				{ "slug": "dev", "label": "開発" },
+				{ "slug": "crypto", "label": "暗号・Web3" },
+				{ "slug": "notes", "label": "雑記" }
+			]
+		},
+		{
+			"name": "tag",
+			"label": "Tags",
+			"labelSingular": "Tag",
+			"hierarchical": false,
+			"collections": ["posts"],
+			"terms": [
+				{ "slug": "web", "label": "Web" },
+				{ "slug": "cloudflare", "label": "Cloudflare" },
+				{ "slug": "oss", "label": "OSS" },
+				{ "slug": "ai", "label": "AI" }
+			]
+		}
+	],
+	"bylines": [
+		{
+			"id": "byline-inaridiy",
+			"slug": "inaridiy",
+			"displayName": "inaridiy"
+		}
+	],
+	"menus": [
+		{
+			"name": "social",
+			"label": "Social Links",
+			"items": [
+				{
+					"type": "custom",
+					"label": "GitHub",
+					"url": "https://github.com/inaridiy",
+					"target": "_blank"
+				}
+			]
+		}
+	],
+	"content": {
+		"pages": [
+			{
+				"id": "about",
+				"slug": "about",
+				"status": "published",
+				"data": {
+					"title": "自己紹介",
+					"content": [
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "inaridiy です。Web 開発と暗号技術が好きです。このサイトはブログと活動記録を置く場所として運用しています。",
+									"_key": "k1"
+								}
+							],
+							"_key": "k0"
+						},
+						{
+							"_type": "block",
+							"style": "h2",
+							"children": [
+								{ "_type": "span", "text": "このサイトについて", "_key": "k3" }
+							],
+							"_key": "k2"
+						},
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "EmDash (CMS) + Astro を Cloudflare Workers 上で動かしています。データベースは D1、メディアは R2。記事は Workers AI / AI Gateway 経由で自動的に英訳され、検索には Cloudflare AI Search を使っています。",
+									"_key": "k5"
+								}
+							],
+							"_key": "k4"
+						},
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "この文章は管理画面 (/_emdash/admin) からいつでも書き換えられます。",
+									"_key": "k7"
+								}
+							],
+							"_key": "k6"
+						}
+					]
+				}
+			}
+		],
+		"posts": [
+			{
+				"id": "post-hello",
+				"slug": "hello-inaridiy-com",
+				"status": "published",
+				"data": {
+					"title": "inaridiy.com を作り直した",
+					"excerpt": "EmDash + Cloudflare Workers でブログを作り直した。D1・AI Search・AI Gateway 経由の自動英訳つき。",
+					"content": [
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "個人サイトを EmDash で作り直した。構成は次の通り。",
+									"_key": "k1"
+								}
+							],
+							"_key": "k0"
+						},
+						{
+							"_type": "block",
+							"style": "h2",
+							"children": [{ "_type": "span", "text": "構成", "_key": "k3" }],
+							"_key": "k2"
+						},
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "CMS は EmDash。Astro ベースで、Cloudflare Workers にそのままデプロイできる。コンテンツは D1 (SQLite)、画像などのメディアは R2 に入る。管理画面もセルフホストされる。",
+									"_key": "k5"
+								}
+							],
+							"_key": "k4"
+						},
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "記事を公開すると、プラグインが AI Gateway 経由で LLM を呼び出して英訳を生成する。使うモデルは AI Gateway の設定で切り替えられる。検索は Cloudflare AI Search (旧 AutoRAG) で、公開済みの記事が R2 に Markdown として書き出され、自動でインデックスされる。",
+									"_key": "k7"
+								}
+							],
+							"_key": "k6"
+						},
+						{
+							"_type": "block",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"text": "見た目は HackerNews 風に、テキスト主体の簡素なリストにした。装飾より本文。",
+									"_key": "k9"
+								}
+							],
+							"_key": "k8"
+						}
+					]
+				},
+				"bylines": [{ "byline": "byline-inaridiy" }],
+				"taxonomies": {
+					"category": ["dev"],
+					"tag": ["web", "cloudflare", "ai"]
+				}
+			}
+		],
+		"activities": [
+			{
+				"id": "activity-site-rebuild",
+				"slug": "site-rebuild-2026",
+				"status": "published",
+				"data": {
+					"title": "inaridiy.com を EmDash + Cloudflare でリニューアル",
+					"date": "2026-07-18T00:00:00.000Z",
+					"kind": "site",
+					"url": "https://inaridiy.com",
+					"description": "個人サイトを EmDash (Astro) + Workers + D1 で作り直し、AI 検索と自動英訳を追加。"
+				}
+			},
+			{
+				"id": "activity-sample-talk",
+				"slug": "sample-talk",
+				"status": "draft",
+				"data": {
+					"title": "(サンプル) 登壇タイトルをここに",
+					"date": "2026-01-01T00:00:00.000Z",
+					"kind": "talk",
+					"url": "https://example.com",
+					"description": "活動歴のサンプルエントリ。管理画面で編集または削除してください。"
+				}
+			}
+		]
+	}
+}

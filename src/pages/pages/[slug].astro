@@ -1,0 +1,58 @@
+---
+import { getEmDashEntry, decodeSlug } from "emdash";
+import { PortableText } from "emdash/ui";
+import Base from "../../layouts/Base.astro";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.redirect("/404");
+
+// /about is the canonical URL for the about page
+if (slug === "about") return Astro.redirect("/about");
+
+const { entry: page, cacheHint } = await getEmDashEntry("pages", slug);
+if (!page) return Astro.redirect("/404");
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+---
+
+<Base
+	title={page.data.title}
+	content={{ collection: "pages", id: page.data.id, slug }}
+>
+	<article class="page">
+		<h1 class="page-title" {...page.edit.title}>{page.data.title}</h1>
+		<div class="page-content">
+			<PortableText value={page.data.content} />
+		</div>
+	</article>
+</Base>
+
+<style>
+	.page {
+		max-width: var(--content-width);
+	}
+
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-6);
+	}
+
+	.page-content {
+		line-height: var(--leading-relaxed);
+	}
+
+	.page-content :global(p) {
+		margin-bottom: 1.4em;
+	}
+
+	.page-content :global(h2) {
+		font-size: var(--font-size-lg);
+		margin-top: 2em;
+		margin-bottom: 0.6em;
+	}
+
+	.page-content :global(ul),
+	.page-content :global(ol) {
+		margin-bottom: 1.4em;
+		padding-left: 1.5em;
+	}
+</style>

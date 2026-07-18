@@ -1,0 +1,157 @@
+---
+import { getEmDashEntry, getSiteSettings, decodeSlug } from "emdash";
+import { PortableText } from "emdash/ui";
+import Base from "../../../layouts/Base.astro";
+import { getReadingTime } from "../../../utils/reading-time";
+import { resolveBlogSiteIdentity } from "../../../utils/site-identity";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.redirect("/404");
+
+const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
+if (!post) return Astro.redirect("/404");
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
+
+const title = post.data.title_en || post.data.title;
+const excerpt = post.data.excerpt_en || post.data.excerpt;
+const content = post.data.content_en || post.data.content;
+const isTranslated = Boolean(post.data.content_en);
+const readingTime = getReadingTime(content);
+const publishDate = post.data.publishedAt?.toISOString().slice(0, 10) ?? null;
+---
+
+<Base
+	title={`${title} — ${siteTitle}`}
+	pageTitle={title}
+	description={excerpt}
+	canonical={`${Astro.url.origin}/en/posts/${slug}`}
+	type="article"
+	publishedTime={post.data.publishedAt?.toISOString() ?? null}
+	modifiedTime={post.data.updatedAt.toISOString()}
+	lang="en"
+	content={{ collection: "posts", id: post.data.id, slug }}
+>
+	<article class="article">
+		<header class="article-header">
+			<h1 class="article-title">{title}</h1>
+			<p class="article-meta">
+				{publishDate && <time>{publishDate}</time>}
+				{publishDate && " · "}
+				{readingTime} min · <a href={`/posts/${slug}`}>日本語</a>
+			</p>
+			{
+				isTranslated ? (
+					<p class="translation-note">
+						Auto-translated from Japanese by an LLM via Cloudflare AI Gateway.
+						<a href={`/posts/${slug}`}> Read the original.</a>
+					</p>
+				) : (
+					<p class="translation-note">
+						English translation is not available yet — showing the Japanese
+						original below.
+					</p>
+				)
+			}
+		</header>
+
+		<div class="article-content">
+			<PortableText value={content} />
+		</div>
+	</article>
+</Base>
+
+<style>
+	.article {
+		max-width: var(--content-width);
+	}
+
+	.article-header {
+		margin-bottom: var(--spacing-8);
+	}
+
+	.article-title {
+		font-size: var(--font-size-2xl);
+		line-height: var(--leading-snug);
+		margin-bottom: var(--spacing-2);
+	}
+
+	.article-meta {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.translation-note {
+		margin-top: var(--spacing-3);
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+		border-left: 2px solid var(--color-border);
+		padding-left: var(--spacing-3);
+	}
+
+	.article-content {
+		line-height: var(--leading-relaxed);
+	}
+
+	.article-content :global(p) {
+		margin-bottom: 1.4em;
+	}
+
+	.article-content :global(h2) {
+		font-size: var(--font-size-xl);
+		margin-top: 2.2em;
+		margin-bottom: 0.7em;
+	}
+
+	.article-content :global(h3) {
+		font-size: var(--font-size-lg);
+		margin-top: 1.8em;
+		margin-bottom: 0.5em;
+	}
+
+	.article-content :global(blockquote) {
+		margin: 1.6em 0;
+		padding: var(--spacing-2) var(--spacing-4);
+		border-left: 3px solid var(--color-border);
+		color: var(--color-text-secondary);
+	}
+
+	.article-content :global(pre) {
+		margin: 1.6em 0;
+		padding: var(--spacing-4);
+		background: var(--secondary);
+		border: 1px solid var(--color-border-subtle);
+		border-radius: var(--radius-lg);
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: var(--font-size-sm);
+		line-height: 1.6;
+	}
+
+	.article-content :global(code) {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
+		background: var(--secondary);
+		padding: 0.15em 0.35em;
+		border-radius: var(--radius-sm);
+	}
+
+	.article-content :global(pre code) {
+		background: none;
+		padding: 0;
+	}
+
+	.article-content :global(ul),
+	.article-content :global(ol) {
+		margin-bottom: 1.4em;
+		padding-left: 1.5em;
+	}
+
+	.article-content :global(a) {
+		color: var(--color-brand);
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		text-decoration-thickness: 1px;
+	}
+</style>

@@ -1,0 +1,15 @@
+{
+	"name": "emdash-plugin-github-export",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Commits published posts to a GitHub repo as Markdown the moment they change (event-driven CMS -> git sync)",
+	"exports": {
+		".": "./src/index.ts",
+		"./sandbox": "./src/sandbox-entry.ts",
+		"./format": "./src/format.mjs"
+	},
+	"peerDependencies": {
+		"emdash": "^0.28.1"
+	}
+}

@@ -1,0 +1,52 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "inaridiy-com",
+	"main": "./src/worker.ts",
+	"compatibility_date": "2026-02-24",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "inaridiy-com",
+			// After `wrangler d1 create inaridiy-com`, paste the returned id here:
+			"database_id": "7fa9f8ae-b306-4784-8f4c-84fbb8f6eb83",
+			"migrations_dir": "../../migrations",
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "inaridiy-media",
+		},
+	],
+	// AI Search (formerly AutoRAG). To enable:
+	//  1. Create an AI Search API token in the dashboard (AI > AI Search > Tokens)
+	//  2. wrangler ai-search create inaridiy-blog-search --type builtin \
+	//       --hybrid-search true --custom-metadata url:text --custom-metadata title:text \
+	//       --custom-metadata lang:text --custom-metadata collection:text --custom-metadata hash:text
+	//  3. Uncomment this binding and run `wrangler types`
+	// The cron in src/worker.ts pushes published content into its built-in
+	// storage (see src/search-index.ts); /search queries it. Without the
+	// binding, /search falls back to the built-in full-text search.
+	// "ai_search": [
+	// 	{
+	// 		"binding": "SEARCH",
+	// 		"instance_name": "inaridiy-blog-search",
+	// 	},
+	// ],
+	// Worker Loader for plugin sandboxing
+	"worker_loaders": [
+		{
+			"binding": "LOADER",
+		},
+	],
+	// Drives scheduled publishing, plugin cron, maintenance, and the
+	// AI Search sync (see src/worker.ts)
+	"triggers": {
+		"crons": [
+			"* * * * *"
+		],
+	},
+}

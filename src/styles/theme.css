@@ -1,0 +1,112 @@
+/*
+  theme.css -- site style system.
+
+  Layer 1: a shadcn/ui-compatible design-token set. These are the same
+  variable names shadcn components consume (--background, --primary,
+  --ring, --radius, ...), so shadcn/Tailwind components can be dropped in
+  later without a second theming system. Colors use light-dark(); the
+  theme switcher pins color-scheme via :root.light / :root.dark.
+
+  Layer 2: the EmDash template tokens (tokens.css) remapped onto layer 1.
+  Existing template markup keeps working, but every color now resolves
+  from the shadcn token set. Change the palette here, in one place.
+
+  Declarations in this file are unlayered, so they always beat the
+  @layer base defaults in tokens.css.
+*/
+
+/* ---------------------------------------------------------------- */
+/* 1. shadcn/ui-compatible tokens                                    */
+/* ---------------------------------------------------------------- */
+:root {
+	--background: light-dark(#ffffff, #0c0c0c);
+	--foreground: light-dark(#18181b, #ececec);
+
+	--card: light-dark(#ffffff, #131313);
+	--card-foreground: var(--foreground);
+
+	--popover: light-dark(#ffffff, #161616);
+	--popover-foreground: var(--foreground);
+
+	--primary: light-dark(#0066cc, #4d9fff);
+	--primary-foreground: light-dark(#ffffff, #0c0c0c);
+
+	--secondary: light-dark(#f4f4f5, #1b1b1b);
+	--secondary-foreground: light-dark(#27272a, #d4d4d8);
+
+	--muted: light-dark(#fafafa, #151515);
+	--muted-foreground: light-dark(#8a8a93, #71717a);
+
+	--accent: light-dark(#f4f4f5, #202020);
+	--accent-foreground: var(--foreground);
+
+	--destructive: light-dark(#dc2626, #f87171);
+	--destructive-foreground: light-dark(#ffffff, #0c0c0c);
+
+	--border: light-dark(#e4e4e7, #27272a);
+	--input: var(--border);
+	--ring: var(--primary);
+
+	--chart-1: light-dark(#0066cc, #4d9fff);
+	--chart-2: light-dark(#059669, #34d399);
+	--chart-3: light-dark(#d97706, #fbbf24);
+	--chart-4: light-dark(#7c3aed, #a78bfa);
+	--chart-5: light-dark(#db2777, #f472b6);
+
+	/* shadcn radius scale (--radius is the base; sm/md/lg derive) */
+	--radius: 0.25rem;
+	--radius-sm: calc(var(--radius) - 2px);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) + 4px);
+	--radius-xl: calc(var(--radius) + 8px);
+}
+
+/* Light-mode fallback for browsers without light-dark() support.
+   Must mirror the light values above. */
+@supports not (color: light-dark(#000, #fff)) {
+	:root {
+		--background: #ffffff;
+		--foreground: #18181b;
+		--card: #ffffff;
+		--popover: #ffffff;
+		--primary: #0066cc;
+		--primary-foreground: #ffffff;
+		--secondary: #f4f4f5;
+		--secondary-foreground: #27272a;
+		--muted: #fafafa;
+		--muted-foreground: #8a8a93;
+		--accent: #f4f4f5;
+		--destructive: #dc2626;
+		--destructive-foreground: #ffffff;
+		--border: #e4e4e7;
+	}
+}
+
+/* ---------------------------------------------------------------- */
+/* 2. EmDash template tokens mapped onto the shadcn set              */
+/* ---------------------------------------------------------------- */
+:root {
+	--color-bg: var(--background);
+	--color-bg-subtle: var(--muted);
+	--color-surface: var(--secondary);
+	--color-text: var(--foreground);
+	--color-text-secondary: color-mix(
+		in srgb,
+		var(--foreground) 62%,
+		var(--muted-foreground)
+	);
+	--color-muted: var(--muted-foreground);
+	--color-border: var(--border);
+	--color-border-subtle: color-mix(in srgb, var(--border) 55%, var(--background));
+	--color-brand: var(--primary);
+	--color-brand-hover: color-mix(in srgb, var(--primary) 80%, var(--foreground));
+	--color-on-brand: var(--primary-foreground);
+	--color-brand-ring: color-mix(in srgb, var(--ring) 25%, transparent);
+
+	/* HN-like density: slightly smaller base type, tighter layout */
+	--font-size-base: 0.9375rem;
+	--content-width: 660px;
+	--wide-width: 880px;
+	--nav-height: 52px;
+	--search-input-width: 160px;
+}

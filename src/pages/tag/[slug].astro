@@ -1,0 +1,32 @@
+---
+import { getTerm, getEmDashCollection, decodeSlug } from "emdash";
+import Base from "../../layouts/Base.astro";
+import PostList from "../../components/PostList.astro";
+
+const slug = decodeSlug(Astro.params.slug);
+const term = slug ? await getTerm("tag", slug) : null;
+if (!term) return Astro.redirect("/404");
+
+const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
+	status: "published",
+	where: { tag: term.slug },
+	orderBy: { published_at: "desc" },
+});
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+---
+
+<Base title={`#${term.label}`} description={`タグ「${term.label}」の記事`}>
+	<h1 class="page-title">#{term.label}</h1>
+	{posts.length === 0 ? <p class="empty">このタグの記事はまだありません。</p> : <PostList posts={posts} />}
+</Base>
+
+<style>
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.empty {
+		color: var(--color-text-secondary);
+	}
+</style>

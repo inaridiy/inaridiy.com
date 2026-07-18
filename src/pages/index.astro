@@ -1,0 +1,135 @@
+---
+import { getEmDashCollection, getSiteSettings } from "emdash";
+import Base from "../layouts/Base.astro";
+import PostList from "../components/PostList.astro";
+import { resolveBlogSiteIdentity } from "../utils/site-identity";
+
+const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings());
+
+const [postsResult, activitiesResult] = await Promise.all([
+	getEmDashCollection("posts", {
+		status: "published",
+		orderBy: { published_at: "desc" },
+		limit: 20,
+	}),
+	getEmDashCollection("activities", {
+		status: "published",
+		orderBy: { date: "desc" },
+		limit: 5,
+	}),
+]);
+const { entries: posts, cacheHint } = postsResult;
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+if (Astro.cache?.enabled) Astro.cache.set(activitiesResult.cacheHint);
+
+function toDate(value: string | Date): Date {
+	return value instanceof Date ? value : new Date(value);
+}
+
+const activities = activitiesResult.entries
+	.map((a) => ({
+		title: a.data.title,
+		date: toDate(a.data.date as string | Date),
+		kind: (a.data.kind as string | null) ?? null,
+		url: (a.data.url as string | null) ?? null,
+	}))
+	.sort((a, b) => b.date.getTime() - a.date.getTime());
+---
+
+<Base title={siteTitle} description={siteTagline}>
+	<p class="tagline">{siteTagline}</p>
+
+	{
+		posts.length === 0 ? (
+			<section class="empty">
+				<p>まだ記事がありません。</p>
+				<a href="/_emdash/admin">管理画面で最初の記事を書く</a>
+			</section>
+		) : (
+			<PostList posts={posts} />
+		)
+	}
+
+	<p class="more">
+		<a href="/posts">すべての記事 →</a>
+	</p>
+
+	{
+		activities.length > 0 && (
+			<section class="activities">
+				<h2 class="section-title">activities</h2>
+				<ul class="activity-list">
+					{activities.map((item) => (
+						<li class="activity-row">
+							<span class="activity-date">
+								{item.date.getUTCFullYear()}-
+								{String(item.date.getUTCMonth() + 1).padStart(2, "0")}
+							</span>
+							{item.kind && <span class="activity-kind">[{item.kind}]</span>}
+							{item.url ? (
+								<a href={item.url} target="_blank" rel="noopener noreferrer">
+									{item.title}
+								</a>
+							) : (
+								<span>{item.title}</span>
+							)}
+						</li>
+					))}
+				</ul>
+				<p class="more">
+					<a href="/activities">すべての活動 →</a>
+				</p>
+			</section>
+		)
+	}
+</Base>
+
+<style>
+	.tagline {
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.empty {
+		padding: var(--spacing-8) 0;
+		color: var(--color-text-secondary);
+	}
+
+	.more {
+		margin-top: var(--spacing-3);
+		font-size: var(--font-size-sm);
+	}
+
+	.activities {
+		margin-top: var(--spacing-8);
+		padding-top: var(--spacing-4);
+		border-top: 1px solid var(--color-border-subtle);
+	}
+
+	.section-title {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		font-weight: 500;
+		margin-bottom: var(--spacing-2);
+	}
+
+	.activity-list {
+		list-style: none;
+	}
+
+	.activity-row {
+		display: flex;
+		gap: var(--spacing-2);
+		padding: 2px 0;
+		font-size: var(--font-size-sm);
+		line-height: var(--leading-normal);
+	}
+
+	.activity-date,
+	.activity-kind {
+		font-family: var(--font-mono);
+		color: var(--color-muted);
+		flex-shrink: 0;
+	}
+</style>

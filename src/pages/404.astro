@@ -1,0 +1,21 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="404" robots="noindex">
+	<h1 class="page-title">404 Not Found</h1>
+	<p class="message">ページが見つかりませんでした。</p>
+	<p><a href="/">← top</a></p>
+</Base>
+
+<style>
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-3);
+	}
+
+	.message {
+		color: var(--color-text-secondary);
+		margin-bottom: var(--spacing-4);
+	}
+</style>

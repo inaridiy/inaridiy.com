@@ -1,0 +1,79 @@
+# git -> CMS content sync.
+#
+# The reverse direction (CMS -> git) is EVENT-DRIVEN: the github-export
+# plugin commits Markdown to this repo the moment a post changes, with a
+# "[cms-sync]" marker in the commit message. This workflow skips those
+# commits (already in sync) and pushes every other content/** change to
+# the CMS. The manual pull job is a recovery tool, not a schedule.
+#
+# Required repository secrets:
+#   EMDASH_URL            e.g. https://inaridiy.com
+#   EMDASH_REFRESH_TOKEN  from ~/.config/emdash/auth.json after
+#                         `npx emdash login --url <EMDASH_URL>`
+#                         (valid 90 days — re-login when it expires)
+name: content-sync
+
+on:
+  push:
+    branches: [main]
+    paths: ["content/**"]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Sync direction"
+        type: choice
+        options: [push, pull]
+        default: push
+
+permissions:
+  contents: write
+
+concurrency:
+  group: content-sync
+  cancel-in-progress: false
+
+jobs:
+  push-to-cms:
+    if: >-
+      (github.event_name == 'push' && !contains(github.event.head_commit.message, '[cms-sync]')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/content-sync.mjs push
+        env:
+          EMDASH_URL: ${{ secrets.EMDASH_URL }}
+          EMDASH_REFRESH_TOKEN: ${{ secrets.EMDASH_REFRESH_TOKEN }}
+
+  pull-from-cms:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'pull'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/content-sync.mjs pull
+        env:
+          EMDASH_URL: ${{ secrets.EMDASH_URL }}
+          EMDASH_REFRESH_TOKEN: ${{ secrets.EMDASH_REFRESH_TOKEN }}
+      - name: Commit CMS edits
+        run: |
+          git config user.name "content-sync[bot]"
+          git config user.email "noreply@users.noreply.github.com"
+          git add content/
+          if git diff --cached --quiet; then
+            echo "No CMS changes"
+          else
+            git commit -m "sync: pull content edits from CMS [cms-sync]"
+            git push
+          fi

@@ -1,0 +1,53 @@
+---
+import { getEmDashCollection } from "emdash";
+import Base from "../../layouts/Base.astro";
+import PostList from "../../components/PostList.astro";
+
+const PAGE_SIZE = 30;
+const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
+const page = Math.max(1, Number.parseInt(Astro.url.searchParams.get("p") ?? "1", 10) || 1);
+
+const { entries: posts, nextCursor, cacheHint } = await getEmDashCollection("posts", {
+	status: "published",
+	orderBy: { published_at: "desc" },
+	limit: PAGE_SIZE,
+	cursor,
+});
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+---
+
+<Base title="Blog" description="すべての記事">
+	<h1 class="page-title">Blog</h1>
+
+	{
+		posts.length === 0 ? (
+			<p class="empty">まだ記事がありません。</p>
+		) : (
+			<PostList posts={posts} start={(page - 1) * PAGE_SIZE + 1} />
+		)
+	}
+
+	{
+		nextCursor && (
+			<p class="more">
+				<a href={`/posts?cursor=${encodeURIComponent(nextCursor)}&p=${page + 1}`}>more →</a>
+			</p>
+		)
+	}
+</Base>
+
+<style>
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-4);
+	}
+
+	.empty {
+		color: var(--color-text-secondary);
+	}
+
+	.more {
+		margin-top: var(--spacing-4);
+		font-size: var(--font-size-sm);
+	}
+</style>

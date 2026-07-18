@@ -1,0 +1,107 @@
+---
+/**
+ * HN-style dense post list: numbered rows, title link, muted meta line.
+ * Works for both JA (default fields) and EN (_en fields with JA fallback).
+ */
+import { getReadingTime } from "../utils/reading-time";
+import type { PortableTextBlock } from "emdash";
+
+interface PostEntryLike {
+	id: string;
+	data: {
+		title: string;
+		title_en?: string | null;
+		content?: PortableTextBlock[];
+		content_en?: PortableTextBlock[] | null;
+		publishedAt?: Date | null;
+	};
+}
+
+interface Props {
+	posts: PostEntryLike[];
+	lang?: "ja" | "en";
+	/** Row numbering offset (1-based start index) */
+	start?: number;
+}
+
+const { posts, lang = "ja", start = 1 } = Astro.props;
+
+const rows = posts.map((post, i) => {
+	const title = lang === "en" ? post.data.title_en || post.data.title : post.data.title;
+	const content =
+		lang === "en" ? post.data.content_en || post.data.content : post.data.content;
+	return {
+		n: start + i,
+		href: lang === "en" ? `/en/posts/${post.id}` : `/posts/${post.id}`,
+		title,
+		date: post.data.publishedAt?.toISOString().slice(0, 10) ?? null,
+		minutes: getReadingTime(content ?? undefined),
+	};
+});
+---
+
+<ol class="post-list" start={start}>
+	{
+		rows.map((row) => (
+			<li class="post-row">
+				<span class="post-num">{row.n}.</span>
+				<div class="post-main">
+					<a href={row.href} class="post-title">
+						{row.title}
+					</a>
+					<span class="post-meta">
+						{row.date && <time>{row.date}</time>}
+						{row.date && " · "}
+						{row.minutes} min
+					</span>
+				</div>
+			</li>
+		))
+	}
+</ol>
+
+<style>
+	.post-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.post-row {
+		display: flex;
+		gap: var(--spacing-2);
+		padding: var(--spacing-2) 0;
+	}
+
+	.post-num {
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+		min-width: 1.6em;
+		text-align: right;
+		flex-shrink: 0;
+		line-height: var(--leading-normal);
+	}
+
+	.post-main {
+		min-width: 0;
+	}
+
+	.post-title {
+		color: var(--color-text);
+		line-height: var(--leading-normal);
+	}
+
+	.post-title:visited {
+		color: var(--color-text-secondary);
+	}
+
+	.post-title:hover {
+		color: var(--color-brand);
+	}
+
+	.post-meta {
+		display: block;
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+	}
+</style>

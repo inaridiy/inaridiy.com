@@ -1,0 +1,217 @@
+---
+import { getEmDashEntry, getSeoMeta, getSiteSettings, decodeSlug } from "emdash";
+import { PortableText } from "emdash/ui";
+import Base from "../../layouts/Base.astro";
+import { getReadingTime } from "../../utils/reading-time";
+import { resolveBlogSiteIdentity } from "../../utils/site-identity";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.redirect("/404");
+
+const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
+if (!post) return Astro.redirect("/404");
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+// Featured image is only used as the OG image; the layout itself is text-first.
+function getImageUrl(img: unknown): string | undefined {
+	if (!img || typeof img !== "object") return undefined;
+	const image = img as Record<string, unknown>;
+	if (typeof image.src === "string" && image.src) {
+		return image.src.startsWith("http") ? image.src : `${Astro.url.origin}${image.src}`;
+	}
+	const meta = image.meta as Record<string, unknown> | undefined;
+	const storageKey =
+		(typeof meta?.storageKey === "string" ? meta.storageKey : undefined) ||
+		(typeof image.id === "string" ? image.id : undefined);
+	if (storageKey) return `${Astro.url.origin}/_emdash/api/media/file/${storageKey}`;
+	return undefined;
+}
+const featuredImageUrl = getImageUrl(post.data.featured_image);
+const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
+
+const seo = getSeoMeta(post, {
+	siteTitle,
+	siteUrl: Astro.url.origin,
+	path: `/posts/${slug}`,
+	defaultOgImage: featuredImageUrl,
+});
+
+const readingTime = getReadingTime(post.data.content);
+const categories = post.data.terms?.category ?? [];
+const tags = post.data.terms?.tag ?? [];
+const publishDate = post.data.publishedAt?.toISOString().slice(0, 10) ?? null;
+const hasEnglish = Boolean(post.data.content_en || post.data.title_en);
+---
+
+<Base
+	title={seo.title}
+	pageTitle={seo.ogTitle}
+	description={seo.description}
+	image={seo.ogImage}
+	canonical={seo.canonical}
+	robots={seo.robots}
+	type="article"
+	publishedTime={post.data.publishedAt?.toISOString() ?? null}
+	modifiedTime={post.data.updatedAt.toISOString()}
+	content={{ collection: "posts", id: post.data.id, slug }}
+>
+	<article class="article">
+		<header class="article-header">
+			<h1 class="article-title" {...post.edit.title}>{post.data.title}</h1>
+			<p class="article-meta">
+				{publishDate && <time>{publishDate}</time>}
+				{publishDate && " · "}
+				{readingTime} min
+				{
+					categories.map((c) => (
+						<>
+							{" · "}
+							<a href={`/category/${c.slug}`}>{c.label}</a>
+						</>
+					))
+				}
+				{
+					hasEnglish && (
+						<>
+							{" · "}
+							<a href={`/en/posts/${slug}`}>English</a>
+						</>
+					)
+				}
+			</p>
+		</header>
+
+		<div class="article-content">
+			<PortableText value={post.data.content} />
+		</div>
+
+		{
+			tags.length > 0 && (
+				<footer class="article-footer">
+					{tags.map((t) => (
+						<a href={`/tag/${t.slug}`} class="tag">
+							#{t.label}
+						</a>
+					))}
+				</footer>
+			)
+		}
+	</article>
+</Base>
+
+<style>
+	.article {
+		max-width: var(--content-width);
+	}
+
+	.article-header {
+		margin-bottom: var(--spacing-8);
+	}
+
+	.article-title {
+		font-size: var(--font-size-2xl);
+		line-height: var(--leading-snug);
+		margin-bottom: var(--spacing-2);
+	}
+
+	.article-meta {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.article-content {
+		line-height: var(--leading-relaxed);
+	}
+
+	.article-content :global(p) {
+		margin-bottom: 1.4em;
+	}
+
+	.article-content :global(h2) {
+		font-size: var(--font-size-xl);
+		margin-top: 2.2em;
+		margin-bottom: 0.7em;
+	}
+
+	.article-content :global(h3) {
+		font-size: var(--font-size-lg);
+		margin-top: 1.8em;
+		margin-bottom: 0.5em;
+	}
+
+	.article-content :global(blockquote) {
+		margin: 1.6em 0;
+		padding: var(--spacing-2) var(--spacing-4);
+		border-left: 3px solid var(--color-border);
+		color: var(--color-text-secondary);
+	}
+
+	.article-content :global(pre) {
+		margin: 1.6em 0;
+		padding: var(--spacing-4);
+		background: var(--secondary);
+		border: 1px solid var(--color-border-subtle);
+		border-radius: var(--radius-lg);
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: var(--font-size-sm);
+		line-height: 1.6;
+	}
+
+	.article-content :global(code) {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
+		background: var(--secondary);
+		padding: 0.15em 0.35em;
+		border-radius: var(--radius-sm);
+	}
+
+	.article-content :global(pre code) {
+		background: none;
+		padding: 0;
+	}
+
+	.article-content :global(ul),
+	.article-content :global(ol) {
+		margin-bottom: 1.4em;
+		padding-left: 1.5em;
+	}
+
+	.article-content :global(li) {
+		margin-bottom: 0.4em;
+	}
+
+	.article-content :global(img) {
+		margin: 1.6em 0;
+		border-radius: var(--radius-lg);
+	}
+
+	.article-content :global(hr) {
+		margin: 2.4em 0;
+		border: none;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.article-content :global(a) {
+		color: var(--color-brand);
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		text-decoration-thickness: 1px;
+	}
+
+	.article-footer {
+		margin-top: var(--spacing-8);
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+	}
+
+	.tag {
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.tag:hover {
+		color: var(--color-brand);
+	}
+</style>
