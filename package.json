@@ -23,6 +23,7 @@
     "@emdash-cms/plugin-forms": "^0.2.4",
     "@emdash-cms/plugin-webhook-notifier": "^0.2.0",
     "astro": "^7.0.0",
+    "emdash-plugin-email-sender": "workspace:*",
     "emdash-plugin-github-export": "workspace:*",
     "emdash-plugin-search-sync": "workspace:*",
     "emdash-plugin-translator": "workspace:*",

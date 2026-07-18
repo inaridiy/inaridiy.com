@@ -130,6 +130,15 @@ pnpm content:push   # content/posts/*.md → CMS (--prune でローカルに無�
 
 エディタについて: この構成では **Markdown の編集は手元のエディタ(VSCode など)や GitHub 上で行う**のが主経路。管理画面の WYSIWYG (ProseMirror) で直した内容も即座に Markdown としてコミットされるので破綻しない。エージェントからは MCP サーバー / `emdash content` CLI 経由で Markdown のまま読み書きできる。管理画面自体に生 Markdown エディタを載せるにはネイティブプラグイン(React)が必要(未実装・必要なら追加可)。
 
+## メール送信 (Cloudflare Email Sending)
+
+EmDash のメール(認証メール、コメント通知、プラグインからの `ctx.email.send()`)は `plugins/email-sender` が **Cloudflare Email Sending** で配送する。API キー不要(`send_email` Worker バインディング、inaridiy.com はオンボード済み)。
+
+- 送信元は `noreply@inaridiy.com`(`wrangler.jsonc` の `allowed_sender_addresses` で制限。変える場合は両方更新)
+- 差出人名・アドレスは管理画面 **Admin → Email Sender** で変更可能
+- 有効化: デプロイ後に管理画面 **Settings → Email** でプロバイダとして email-sender を選択
+- 配送はデプロイ環境のみ(ローカルで実送信したい場合は binding に `"remote": true` を付ける)
+
 ## トークン設定まとめ
 
 | どこに | 何を | 用途 / 作り方 |
@@ -154,6 +163,7 @@ pnpm content:push   # content/posts/*.md → CMS (--prune でローカルに無�
 
 ```
 content/posts/          記事の Markdown ミラー (git が実体)
+plugins/email-sender/   Cloudflare Email Sending トランスポート (email:deliver)
 plugins/translator/     自動英訳プラグイン (pnpm workspace)
 plugins/search-sync/    AI Search イベント駆動同期プラグイン (docs.ts は cron と共有)
 plugins/github-export/  CMS→git イベント駆動コミット (format.mjs はスクリプトと共有)

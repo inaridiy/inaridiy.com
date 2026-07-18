@@ -36,6 +36,14 @@
 	// 		"instance_name": "inaridiy-blog-search",
 	// 	},
 	// ],
+	// Cloudflare Email Sending (inaridiy.com is onboarded). Used by the
+	// email-sender plugin as EmDash's email transport.
+	"send_email": [
+		{
+			"name": "EMAIL",
+			"allowed_sender_addresses": ["noreply@inaridiy.com"],
+		},
+	],
 	// Worker Loader for plugin sandboxing
 	"worker_loaders": [
 		{

@@ -3,6 +3,7 @@ import react from "@astrojs/react";
 import { d1, r2, sandbox } from "@emdash-cms/cloudflare";
 import { formsPlugin } from "@emdash-cms/plugin-forms";
 import webhookNotifier from "@emdash-cms/plugin-webhook-notifier";
+import { emailSenderPlugin } from "emdash-plugin-email-sender";
 import { githubExportPlugin } from "emdash-plugin-github-export";
 import { searchSyncPlugin } from "emdash-plugin-search-sync";
 import { translatorPlugin } from "emdash-plugin-translator";
@@ -21,8 +22,14 @@ export default defineConfig({
 		emdash({
 			database: d1({ binding: "DB", session: "auto" }),
 			storage: r2({ binding: "MEDIA" }),
-			// searchSyncPlugin is trusted-only (imports cloudflare:workers env)
-			plugins: [formsPlugin(), translatorPlugin(), searchSyncPlugin(), githubExportPlugin()],
+			// searchSync / emailSender are trusted-only (import cloudflare:workers env)
+			plugins: [
+				formsPlugin(),
+				translatorPlugin(),
+				searchSyncPlugin(),
+				githubExportPlugin(),
+				emailSenderPlugin(),
+			],
 			sandboxed: [webhookNotifier],
 			sandboxRunner: sandbox(),
 			marketplace: "https://marketplace.emdashcms.com",
