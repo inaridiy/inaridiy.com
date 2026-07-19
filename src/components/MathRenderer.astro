@@ -1,8 +1,9 @@
 ---
 /**
  * Client-side KaTeX auto-render. Only include this component on pages
- * whose content actually contains math delimiters — the katex JS/CSS
- * chunk then loads only where needed.
+ * whose content actually contains math delimiters — the katex JS chunk
+ * loads only where needed, and the stylesheet is injected at runtime
+ * (a static CSS import would get hoisted into every page's <head>).
  *
  * Supported delimiters: $$...$$ (display), \( ... \) and $...$ (inline),
  * \[ ... \] (display).
@@ -10,9 +11,17 @@
 ---
 
 <script>
-	import "katex/dist/katex.min.css";
+	// @ts-expect-error — vite asset-url import
+	import katexCssUrl from "katex/dist/katex.min.css?url";
 	// @ts-expect-error — no bundled types for the contrib entry
 	import renderMathInElement from "katex/dist/contrib/auto-render.mjs";
+
+	if (!document.querySelector(`link[href="${katexCssUrl}"]`)) {
+		const link = document.createElement("link");
+		link.rel = "stylesheet";
+		link.href = katexCssUrl;
+		document.head.appendChild(link);
+	}
 
 	const target = document.querySelector(".article-content");
 	if (target) {

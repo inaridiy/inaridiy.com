@@ -258,7 +258,11 @@ const isLoggedIn = !!Astro.locals.user;
 					background: var(--color-bg);
 					-webkit-font-smoothing: antialiased;
 					-moz-osx-font-smoothing: grayscale;
-					min-height: 100vh;
+					/* Exact-fit page: header + main (flex) + footer = 100dvh,
+					   no magic-number min-heights to drift out of sync */
+					min-height: 100dvh;
+					display: flex;
+					flex-direction: column;
 				}
 
 				a:where(:not([class*="emdash"]):not([class*="ec-"])) {
@@ -371,10 +375,11 @@ const isLoggedIn = !!Astro.locals.user;
 			}
 
 			main {
+				flex: 1 0 auto;
+				width: 100%;
 				max-width: var(--wide-width);
 				margin: 0 auto;
 				padding: var(--spacing-6) var(--spacing-5) var(--spacing-16);
-				min-height: calc(100vh - var(--nav-height) - 120px);
 			}
 
 			.site-footer {
