@@ -113,7 +113,11 @@ pnpm deploy           # = astro build && wrangler deploy
 
 ## 記事の Markdown 管理 / GitHub 同期
 
-記事の実体は `content/posts/*.md`(frontmatter: `slug` / `status` / `title` / `excerpt` + 本文 Markdown)。EmDash 公式クライアントの Portable Text ⇄ Markdown 変換(標準ブロックはロスレス往復、未知ブロックは `<!--ec:block ... -->` フェンスで保全)を使うため、独自変換は持たない。
+コンテンツの実体は `content/` 以下の Markdown:
+
+- `content/posts/*.md` — frontmatter: `slug` / `status` / `title` / `excerpt` + 本文
+- `content/pages/*.md` — frontmatter: `slug` / `status` / `title` + 本文
+- `content/activities/*.md` — frontmatter のみ (`title` / `date` / `kind` / `url` / `description`)EmDash 公式クライアントの Portable Text ⇄ Markdown 変換(標準ブロックはロスレス往復、未知ブロックは `<!--ec:block ... -->` フェンスで保全)を使うため、独自変換は持たない。
 
 ```bash
 pnpm content:pull   # CMS → content/posts/*.md
@@ -131,6 +135,32 @@ pnpm content:push   # content/posts/*.md → CMS (--prune でローカルに無�
 - 手動の `pull` は復旧用として workflow_dispatch に残してある(定期実行なし)
 
 エディタについて: この構成では **Markdown の編集は手元のエディタ(VSCode など)や GitHub 上で行う**のが主経路。管理画面の WYSIWYG (ProseMirror) で直した内容も即座に Markdown としてコミットされるので破綻しない。エージェントからは MCP サーバー / `emdash content` CLI 経由で Markdown のまま読み書きできる。管理画面自体に生 Markdown エディタを載せるにはネイティブプラグイン(React)が必要(未実装・必要なら追加可)。
+
+## 記事内のコード・数式・GitHub 埋め込み
+
+- **シンタックスハイライト**: shiki (純 JS エンジン、Workers 対応) によるサーバーサイドハイライト。対応言語は `src/lib/shiki.ts` の LANGS(TS/JS/Python/Rust/Go/Solidity など。追加もそこで)
+- **GitHub 埋め込み**: ` ```github ` フェンスの中に blob permalink を書くと、該当行を取得してハイライト付きスニペット + ソースリンクとして表示
+
+  ````markdown
+  ```github
+  https://github.com/owner/repo/blob/main/src/file.ts#L10-L25
+  ```
+  ````
+
+  ※ 公開リポジトリのみ (private は raw が 404 になり URL がそのまま表示される)
+- **KaTeX 数式**: `$...$` / `$$...$$` / `\(...\)` / `\[...\]`。数式を含む記事だけ katex の JS/CSS がクライアントで読み込まれる
+
+## ニュースレター (Email 購読)
+
+フッターのフォームから購読(**ダブルオプトイン**: 確認メールのリンクで確定)。記事の**初回公開時に1度だけ**、購読者全員へプレーンテキストの通知メールを送る(再編集・再公開では送られない)。配信は EmDash のメールパイプライン経由 = Cloudflare Email Sending。
+
+- 購読者一覧・送信履歴: **Admin → Newsletter**
+- 確認/解除ページ: `/newsletter/confirm` `/newsletter/unsubscribe`
+- スパム対策: メール形式検証、確認メールの再送は24時間に1回、購読状況の照会不可(列挙防止)
+
+## メール受信 (Email Routing)
+
+`contact@inaridiy.com` と `inari@inaridiy.com` への受信メールは Gmail へ転送される(ルールは `wrangler email routing rules list inaridiy.com` で確認)。
 
 ## メール送信 (Cloudflare Email Sending)
 

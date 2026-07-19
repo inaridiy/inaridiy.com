@@ -1,5 +1,6 @@
 /**
- * The canonical content/posts/*.md file format, shared by BOTH sync paths:
+ * The canonical content/<collection>/*.md file format, shared by BOTH
+ * sync paths:
  *   - this plugin (event-driven CMS -> git export)
  *   - scripts/content-sync.mjs (git -> CMS push, manual pull)
  *
@@ -8,21 +9,35 @@
  * or every sync pass would produce phantom diffs.
  */
 
-/** Fields that sync through frontmatter (everything else stays CMS-side). */
-export const FRONT_FIELDS = ["title", "excerpt"];
+/**
+ * Synced collections. `fields` are frontmatter fields (in order); `body`
+ * names the Portable Text field stored as the Markdown body (null =
+ * frontmatter-only files, e.g. activities). `*_en` fields belong to the
+ * translator and are never synced.
+ */
+export const COLLECTIONS = {
+	posts: { dir: "content/posts", fields: ["title", "excerpt"], body: "content" },
+	pages: { dir: "content/pages", fields: ["title"], body: "content" },
+	activities: {
+		dir: "content/activities",
+		fields: ["title", "date", "kind", "url", "description"],
+		body: null,
+	},
+};
 
 /**
  * @param {{ slug: string, status: string, fields: Record<string, string>, body: string }} entry
+ * @param {string[]} fieldOrder
  * @returns {string}
  */
-export function serializeEntry(entry) {
+export function serializeEntry(entry, fieldOrder) {
 	const lines = ["---"];
 	lines.push(`slug: ${JSON.stringify(entry.slug)}`);
 	lines.push(`status: ${JSON.stringify(entry.status)}`);
-	for (const field of FRONT_FIELDS) {
+	for (const field of fieldOrder) {
 		if (entry.fields[field]) lines.push(`${field}: ${JSON.stringify(entry.fields[field])}`);
 	}
-	lines.push("---", "", entry.body.trimEnd(), "");
+	lines.push("---", "", (entry.body ?? "").trimEnd(), "");
 	return lines.join("\n");
 }
 

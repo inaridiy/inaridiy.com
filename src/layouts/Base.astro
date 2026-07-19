@@ -20,6 +20,8 @@ interface Props {
 	author?: string | null;
 	/** Page language; JA is the site default, EN pages pass "en" */
 	lang?: "ja" | "en";
+	/** hreflang alternate links (JA/EN page pairs). Paths, not full URLs. */
+	alternates?: Array<{ hreflang: string; path: string }>;
 	/** Pass content reference for plugin page contributions on content pages */
 	content?: { collection: string; id: string; slug?: string | null };
 }
@@ -36,6 +38,7 @@ const {
 	modifiedTime,
 	author,
 	lang = "ja",
+	alternates,
 	content,
 } = Astro.props;
 const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings());
@@ -72,6 +75,15 @@ const isLoggedIn = !!Astro.locals.user;
 		<Font cssVariable="--font-body" preload />
 		<Font cssVariable="--font-mono" />
 		<title>{fullTitle}</title>
+		{
+			alternates?.map((alt) => (
+				<link
+					rel="alternate"
+					hreflang={alt.hreflang}
+					href={`${Astro.url.origin}${alt.path}`}
+				/>
+			))
+		}
 		<EmDashHead page={pageCtx} />
 	</head>
 	<body>
@@ -115,6 +127,25 @@ const isLoggedIn = !!Astro.locals.user;
 
 		<footer class="site-footer">
 			<div class="footer-inner">
+				<form class="newsletter-form" data-newsletter>
+					<label class="newsletter-label" for="newsletter-email">
+						{lang === "ja" ? "新着記事をメールで受け取る" : "Get new posts by email"}
+					</label>
+					<div class="newsletter-row">
+						<input
+							id="newsletter-email"
+							type="email"
+							name="email"
+							required
+							placeholder="you@example.com"
+							class="newsletter-input"
+						/>
+						<button type="submit" class="newsletter-button">
+							{lang === "ja" ? "購読" : "Subscribe"}
+						</button>
+					</div>
+					<p class="newsletter-status" data-newsletter-status></p>
+				</form>
 				<nav class="footer-links">
 					{
 						socialMenu?.items.map((item) => (
@@ -130,10 +161,7 @@ const isLoggedIn = !!Astro.locals.user;
 					<a href="/rss.xml">rss</a>
 					<a href="/activities">activities</a>
 				</nav>
-				<p class="footer-copyright">
-					{siteTagline} · powered by <a href="https://emdashcms.com">EmDash</a> on
-					<a href="https://workers.cloudflare.com">Cloudflare Workers</a>
-				</p>
+				{siteTagline && <p class="footer-copyright">{siteTagline}</p>}
 			</div>
 		</footer>
 
@@ -144,6 +172,35 @@ const isLoggedIn = !!Astro.locals.user;
 					e.preventDefault();
 					const searchInput = document.querySelector(".site-search-input") as HTMLInputElement;
 					if (searchInput) searchInput.focus();
+				}
+			});
+
+			// Newsletter signup (plugin route needs the CSRF header, hence fetch)
+			const form = document.querySelector<HTMLFormElement>("[data-newsletter]");
+			const status = document.querySelector<HTMLElement>("[data-newsletter-status]");
+			const isJa = document.documentElement.lang !== "en";
+			form?.addEventListener("submit", async (e) => {
+				e.preventDefault();
+				const email = new FormData(form).get("email");
+				if (!status) return;
+				status.textContent = "...";
+				try {
+					const response = await fetch("/_emdash/api/plugins/newsletter/subscribe", {
+						method: "POST",
+						headers: { "content-type": "application/json", "X-EmDash-Request": "1" },
+						body: JSON.stringify({ email }),
+					});
+					const result = (await response.json()) as { data?: { ok?: boolean } };
+					if (result.data?.ok) {
+						status.textContent = isJa
+							? "確認メールを送りました。メール内のリンクで購読が完了します。"
+							: "Check your inbox — click the link to confirm.";
+						form.reset();
+					} else {
+						status.textContent = isJa ? "登録に失敗しました。" : "Subscription failed.";
+					}
+				} catch {
+					status.textContent = isJa ? "登録に失敗しました。" : "Subscription failed.";
 				}
 			});
 		</script>
@@ -329,6 +386,63 @@ const isLoggedIn = !!Astro.locals.user;
 				margin: 0 auto;
 				padding: var(--spacing-4) var(--spacing-5);
 				font-size: var(--font-size-sm);
+			}
+
+			.newsletter-form {
+				margin-bottom: var(--spacing-4);
+				max-width: 360px;
+			}
+
+			.newsletter-label {
+				display: block;
+				font-size: var(--font-size-xs);
+				color: var(--color-muted);
+				margin-bottom: var(--spacing-1);
+			}
+
+			.newsletter-row {
+				display: flex;
+				gap: var(--spacing-2);
+			}
+
+			.newsletter-input {
+				flex: 1;
+				min-width: 0;
+				padding: var(--spacing-1) var(--spacing-2);
+				font-family: var(--font-body);
+				font-size: var(--font-size-sm);
+				border: 1px solid var(--input);
+				border-radius: var(--radius);
+				background: var(--color-bg);
+				color: var(--color-text);
+			}
+
+			.newsletter-input:focus {
+				outline: none;
+				border-color: var(--ring);
+				box-shadow: 0 0 0 3px var(--color-brand-ring);
+			}
+
+			.newsletter-button {
+				padding: var(--spacing-1) var(--spacing-3);
+				font-size: var(--font-size-sm);
+				font-family: var(--font-body);
+				background: var(--secondary);
+				color: var(--secondary-foreground);
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+				cursor: pointer;
+			}
+
+			.newsletter-button:hover {
+				color: var(--color-brand);
+			}
+
+			.newsletter-status {
+				font-size: var(--font-size-xs);
+				color: var(--color-muted);
+				margin-top: var(--spacing-1);
+				min-height: 1em;
 			}
 
 			.footer-links {

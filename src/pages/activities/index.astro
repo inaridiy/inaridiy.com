@@ -40,7 +40,15 @@ for (const row of rows) {
 }
 ---
 
-<Base title="Activities" description="活動歴">
+<Base
+	title="Activities"
+	description="活動歴"
+	alternates={[
+		{ hreflang: "ja", path: "/activities" },
+		{ hreflang: "en", path: "/en/activities" },
+		{ hreflang: "x-default", path: "/activities" },
+	]}
+>
 	<h1 class="page-title">Activities</h1>
 
 	{rows.length === 0 && <p class="empty">まだ活動記録がありません。</p>}

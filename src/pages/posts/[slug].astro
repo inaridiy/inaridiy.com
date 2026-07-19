@@ -2,7 +2,10 @@
 import { getEmDashEntry, getSeoMeta, getSiteSettings, decodeSlug } from "emdash";
 import { PortableText } from "emdash/ui";
 import Base from "../../layouts/Base.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import MathRenderer from "../../components/MathRenderer.astro";
 import { getReadingTime } from "../../utils/reading-time";
+import { hasMath } from "../../utils/has-math";
 import { resolveBlogSiteIdentity } from "../../utils/site-identity";
 
 const slug = decodeSlug(Astro.params.slug);
@@ -38,6 +41,7 @@ const seo = getSeoMeta(post, {
 });
 
 const readingTime = getReadingTime(post.data.content);
+const contentHasMath = hasMath(post.data.content);
 const categories = post.data.terms?.category ?? [];
 const tags = post.data.terms?.tag ?? [];
 const publishDate = post.data.publishedAt?.toISOString().slice(0, 10) ?? null;
@@ -54,6 +58,11 @@ const hasEnglish = Boolean(post.data.content_en || post.data.title_en);
 	type="article"
 	publishedTime={post.data.publishedAt?.toISOString() ?? null}
 	modifiedTime={post.data.updatedAt.toISOString()}
+	alternates={[
+		{ hreflang: "ja", path: `/posts/${slug}` },
+		{ hreflang: "en", path: `/en/posts/${slug}` },
+		{ hreflang: "x-default", path: `/posts/${slug}` },
+	]}
 	content={{ collection: "posts", id: post.data.id, slug }}
 >
 	<article class="article">
@@ -83,8 +92,9 @@ const hasEnglish = Boolean(post.data.content_en || post.data.title_en);
 		</header>
 
 		<div class="article-content">
-			<PortableText value={post.data.content} />
+			<PortableText value={post.data.content} components={{ type: { code: CodeBlock } }} />
 		</div>
+		{contentHasMath && <MathRenderer />}
 
 		{
 			tags.length > 0 && (

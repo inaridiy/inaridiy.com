@@ -26,10 +26,13 @@
     "emdash": "^0.28.1",
     "emdash-plugin-email-sender": "workspace:*",
     "emdash-plugin-github-export": "workspace:*",
+    "emdash-plugin-newsletter": "workspace:*",
     "emdash-plugin-search-sync": "workspace:*",
     "emdash-plugin-translator": "workspace:*",
+    "katex": "^0.18.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "shiki": "^4.3.1",
     "workers-og": "^0.0.27"
   },
   "devDependencies": {

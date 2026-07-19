@@ -1,0 +1,42 @@
+---
+import Base from "../../layouts/Base.astro";
+---
+
+<Base title="購読確認" robots="noindex">
+	<h1 class="page-title">購読確認</h1>
+	<p class="message" data-result>確認しています...</p>
+	<p><a href="/">← top</a></p>
+</Base>
+
+<script>
+	const result = document.querySelector<HTMLElement>("[data-result]");
+	const token = new URLSearchParams(location.search).get("token") ?? "";
+	(async () => {
+		if (!result) return;
+		try {
+			const response = await fetch("/_emdash/api/plugins/newsletter/confirm", {
+				method: "POST",
+				headers: { "content-type": "application/json", "X-EmDash-Request": "1" },
+				body: JSON.stringify({ token }),
+			});
+			const data = (await response.json()) as { data?: { ok?: boolean } };
+			result.textContent = data.data?.ok
+				? "購読が完了しました。新着記事をメールでお知らせします。"
+				: "リンクが無効です。お手数ですがもう一度購読登録してください。";
+		} catch {
+			result.textContent = "エラーが発生しました。時間をおいて再度お試しください。";
+		}
+	})();
+</script>
+
+<style>
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-3);
+	}
+
+	.message {
+		color: var(--color-text-secondary);
+		margin-bottom: var(--spacing-4);
+	}
+</style>

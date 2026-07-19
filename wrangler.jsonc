@@ -3,6 +3,10 @@
 	"name": "inaridiy-com",
 	"main": "./src/worker.ts",
 	"compatibility_date": "2026-02-24",
+	// Persist production logs (viewable in the dashboard, not just `wrangler tail`)
+	"observability": {
+		"enabled": true,
+	},
 	"compatibility_flags": [
 		"nodejs_compat"
 	],

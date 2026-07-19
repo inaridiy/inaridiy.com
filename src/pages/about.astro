@@ -2,6 +2,7 @@
 import { getEmDashEntry } from "emdash";
 import { PortableText } from "emdash/ui";
 import Base from "../layouts/Base.astro";
+import CodeBlock from "../components/CodeBlock.astro";
 
 const { entry: page, cacheHint } = await getEmDashEntry("pages", "about");
 if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
@@ -10,6 +11,11 @@ if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
 <Base
 	title={page?.data.title ?? "About"}
 	description="自己紹介"
+	alternates={[
+		{ hreflang: "ja", path: "/about" },
+		{ hreflang: "en", path: "/en/about" },
+		{ hreflang: "x-default", path: "/about" },
+	]}
 	content={page ? { collection: "pages", id: page.data.id, slug: "about" } : undefined}
 >
 	{
@@ -19,7 +25,10 @@ if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
 					{page.data.title}
 				</h1>
 				<div class="page-content">
-					<PortableText value={page.data.content} />
+					<PortableText
+						value={page.data.content}
+						components={{ type: { code: CodeBlock } }}
+					/>
 				</div>
 			</article>
 		) : (

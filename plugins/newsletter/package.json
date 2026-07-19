@@ -1,0 +1,14 @@
+{
+	"name": "emdash-plugin-newsletter",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Email subscriptions: double opt-in signup and new-post notifications through the EmDash email pipeline",
+	"exports": {
+		".": "./src/index.ts",
+		"./sandbox": "./src/sandbox-entry.ts"
+	},
+	"peerDependencies": {
+		"emdash": "^0.28.1"
+	}
+}

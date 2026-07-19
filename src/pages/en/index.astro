@@ -18,6 +18,11 @@ if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
 	title={`${siteTitle} (EN)`}
 	description="Personal blog of inaridiy — English edition (auto-translated)"
 	lang="en"
+	alternates={[
+		{ hreflang: "ja", path: "/" },
+		{ hreflang: "en", path: "/en" },
+		{ hreflang: "x-default", path: "/" },
+	]}
 >
 	<p class="tagline">
 		English edition. Posts are auto-translated from Japanese by an LLM via

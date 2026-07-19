@@ -11,7 +11,16 @@ const content = page?.data.content_en || page?.data.content;
 const isTranslated = Boolean(page?.data.content_en);
 ---
 
-<Base title={title} description="About inaridiy" lang="en">
+<Base
+	title={title}
+	description="About inaridiy"
+	lang="en"
+	alternates={[
+		{ hreflang: "ja", path: "/about" },
+		{ hreflang: "en", path: "/en/about" },
+		{ hreflang: "x-default", path: "/about" },
+	]}
+>
 	{
 		page ? (
 			<article class="page">

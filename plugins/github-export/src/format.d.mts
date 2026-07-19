@@ -5,6 +5,12 @@ export interface MarkdownEntry {
 	body: string;
 }
 
-export declare const FRONT_FIELDS: string[];
-export declare function serializeEntry(entry: MarkdownEntry): string;
+export interface CollectionFormat {
+	dir: string;
+	fields: string[];
+	body: string | null;
+}
+
+export declare const COLLECTIONS: Record<string, CollectionFormat>;
+export declare function serializeEntry(entry: MarkdownEntry, fieldOrder: string[]): string;
 export declare function parseEntry(text: string, fallbackSlug: string): MarkdownEntry;

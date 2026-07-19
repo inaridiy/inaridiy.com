@@ -36,7 +36,15 @@ const activities = activitiesResult.entries
 	.sort((a, b) => b.date.getTime() - a.date.getTime());
 ---
 
-<Base title={siteTitle} description={siteTagline}>
+<Base
+	title={siteTitle}
+	description={siteTagline}
+	alternates={[
+		{ hreflang: "ja", path: "/" },
+		{ hreflang: "en", path: "/en" },
+		{ hreflang: "x-default", path: "/" },
+	]}
+>
 	<p class="tagline">{siteTagline}</p>
 
 	{

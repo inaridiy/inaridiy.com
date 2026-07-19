@@ -1,0 +1,29 @@
+---
+/**
+ * Client-side KaTeX auto-render. Only include this component on pages
+ * whose content actually contains math delimiters — the katex JS/CSS
+ * chunk then loads only where needed.
+ *
+ * Supported delimiters: $$...$$ (display), \( ... \) and $...$ (inline),
+ * \[ ... \] (display).
+ */
+---
+
+<script>
+	import "katex/dist/katex.min.css";
+	// @ts-expect-error — no bundled types for the contrib entry
+	import renderMathInElement from "katex/dist/contrib/auto-render.mjs";
+
+	const target = document.querySelector(".article-content");
+	if (target) {
+		renderMathInElement(target, {
+			delimiters: [
+				{ left: "$$", right: "$$", display: true },
+				{ left: "\\[", right: "\\]", display: true },
+				{ left: "\\(", right: "\\)", display: false },
+				{ left: "$", right: "$", display: false },
+			],
+			throwOnError: false,
+		});
+	}
+</script>

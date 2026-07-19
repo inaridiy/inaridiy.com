@@ -5,6 +5,7 @@ import { formsPlugin } from "@emdash-cms/plugin-forms";
 import webhookNotifier from "@emdash-cms/plugin-webhook-notifier";
 import { emailSenderPlugin } from "emdash-plugin-email-sender";
 import { githubExportPlugin } from "emdash-plugin-github-export";
+import { newsletterPlugin } from "emdash-plugin-newsletter";
 import { searchSyncPlugin } from "emdash-plugin-search-sync";
 import { translatorPlugin } from "emdash-plugin-translator";
 import { defineConfig, fontProviders } from "astro/config";
@@ -37,6 +38,7 @@ export default defineConfig({
 				searchSyncPlugin(),
 				githubExportPlugin(),
 				emailSenderPlugin(),
+				newsletterPlugin(),
 			],
 			sandboxed: [webhookNotifier],
 			sandboxRunner: sandbox(),

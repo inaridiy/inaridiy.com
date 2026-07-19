@@ -1,7 +1,7 @@
 import { portableTextToMarkdown } from "emdash/client";
 import type { PortableTextBlock } from "emdash";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
-import { serializeEntry, FRONT_FIELDS } from "./format.mjs";
+import { serializeEntry, COLLECTIONS } from "./format.mjs";
 
 /**
  * GitHub export plugin (runtime). See ./index.ts for the overview.
@@ -16,13 +16,10 @@ import { serializeEntry, FRONT_FIELDS } from "./format.mjs";
  * workflow skips those commits, closing the loop without extra CI runs.
  */
 
-const COLLECTION = "posts";
-
 interface Settings {
 	enabled: boolean;
 	repo: string;
 	branch: string;
-	pathPrefix: string;
 	token: string;
 }
 
@@ -31,7 +28,6 @@ async function readSettings(ctx: PluginContext): Promise<Settings> {
 		enabled: (await ctx.kv.get<boolean>("settings:enabled")) ?? true,
 		repo: (await ctx.kv.get<string>("settings:repo")) ?? "",
 		branch: (await ctx.kv.get<string>("settings:branch")) || "main",
-		pathPrefix: (await ctx.kv.get<string>("settings:pathPrefix")) || "content/posts",
 		token: (await ctx.kv.get<string>("settings:token")) ?? "",
 	};
 }
@@ -127,7 +123,8 @@ async function recordResult(ctx: PluginContext, result: Record<string, unknown>)
 }
 
 async function exportEntry(collection: string, id: string, ctx: PluginContext): Promise<void> {
-	if (collection !== COLLECTION) return;
+	const format = COLLECTIONS[collection];
+	if (!format) return;
 	const settings = await readSettings(ctx);
 	if (!settings.enabled) return;
 	if (!settings.repo || !settings.token) {
@@ -139,12 +136,15 @@ async function exportEntry(collection: string, id: string, ctx: PluginContext): 
 	if (!item || !item.slug) return;
 
 	const fields: Record<string, string> = {};
-	for (const field of FRONT_FIELDS) {
-		if (typeof item.data[field] === "string") fields[field] = item.data[field] as string;
+	for (const field of format.fields) {
+		const value = item.data[field];
+		if (typeof value === "string") fields[field] = value;
 	}
-	const body = portableTextToMarkdown((item.data.content as PortableTextBlock[]) ?? []);
-	const text = serializeEntry({ slug: item.slug, status: item.status, fields, body });
-	const path = `${settings.pathPrefix}/${item.slug}.md`;
+	const body = format.body
+		? portableTextToMarkdown((item.data[format.body] as PortableTextBlock[]) ?? [])
+		: "";
+	const text = serializeEntry({ slug: item.slug, status: item.status, fields, body }, format.fields);
+	const path = `${format.dir}/${item.slug}.md`;
 
 	try {
 		const existing = await getFile(ctx, settings, path);
@@ -168,7 +168,7 @@ async function exportEntry(collection: string, id: string, ctx: PluginContext): 
 }
 
 async function removeEntry(collection: string, id: string, ctx: PluginContext): Promise<void> {
-	if (collection !== COLLECTION) return;
+	if (!COLLECTIONS[collection]) return;
 	const settings = await readSettings(ctx);
 	if (!settings.enabled || !settings.repo || !settings.token) return;
 
@@ -208,7 +208,7 @@ async function settingsBlocks(ctx: PluginContext) {
 			{ type: "header", text: "GitHub Export" },
 			{
 				type: "context",
-				text: "Commits posts to the repo as content/posts/<slug>.md the moment they change. Token: fine-grained PAT with Contents read/write on this one repository.",
+				text: "Commits posts, pages, and activities to the repo as content/<collection>/<slug>.md the moment they change. Token: fine-grained PAT with Contents read/write on this one repository.",
 			},
 			...(configured
 				? []
@@ -232,12 +232,6 @@ async function settingsBlocks(ctx: PluginContext) {
 						initial_value: settings.repo,
 					},
 					{ type: "text_input", action_id: "branch", label: "Branch", initial_value: settings.branch },
-					{
-						type: "text_input",
-						action_id: "pathPrefix",
-						label: "Path prefix",
-						initial_value: settings.pathPrefix,
-					},
 					{ type: "secret_input", action_id: "token", label: "GitHub token (fine-grained PAT)" },
 				],
 				submit: { label: "Save", action_id: "save_settings" },
@@ -308,10 +302,7 @@ export default {
 					await ctx.kv.set("settings:enabled", Boolean(values.enabled));
 					await ctx.kv.set("settings:repo", String(values.repo ?? "").trim());
 					await ctx.kv.set("settings:branch", String(values.branch ?? "").trim() || "main");
-					await ctx.kv.set(
-						"settings:pathPrefix",
-						String(values.pathPrefix ?? "").trim().replace(/\/+$/, "") || "content/posts",
-					);
+					await ctx.kv.delete("settings:pathPrefix");
 					const token = String(values.token ?? "").trim();
 					// Empty secret input means "keep the stored token"
 					if (token !== "") await ctx.kv.set("settings:token", token);

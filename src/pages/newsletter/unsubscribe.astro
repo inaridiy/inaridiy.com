@@ -1,0 +1,42 @@
+---
+import Base from "../../layouts/Base.astro";
+---
+
+<Base title="配信停止" robots="noindex">
+	<h1 class="page-title">配信停止</h1>
+	<p class="message" data-result>処理しています...</p>
+	<p><a href="/">← top</a></p>
+</Base>
+
+<script>
+	const result = document.querySelector<HTMLElement>("[data-result]");
+	const token = new URLSearchParams(location.search).get("token") ?? "";
+	(async () => {
+		if (!result) return;
+		try {
+			const response = await fetch("/_emdash/api/plugins/newsletter/unsubscribe", {
+				method: "POST",
+				headers: { "content-type": "application/json", "X-EmDash-Request": "1" },
+				body: JSON.stringify({ token }),
+			});
+			const data = (await response.json()) as { data?: { ok?: boolean } };
+			result.textContent = data.data?.ok
+				? "配信を停止しました。"
+				: "エラーが発生しました。時間をおいて再度お試しください。";
+		} catch {
+			result.textContent = "エラーが発生しました。時間をおいて再度お試しください。";
+		}
+	})();
+</script>
+
+<style>
+	.page-title {
+		font-size: var(--font-size-xl);
+		margin-bottom: var(--spacing-3);
+	}
+
+	.message {
+		color: var(--color-text-secondary);
+		margin-bottom: var(--spacing-4);
+	}
+</style>

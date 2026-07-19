@@ -2,7 +2,10 @@
 import { getEmDashEntry, getSiteSettings, decodeSlug } from "emdash";
 import { PortableText } from "emdash/ui";
 import Base from "../../../layouts/Base.astro";
+import CodeBlock from "../../../components/CodeBlock.astro";
+import MathRenderer from "../../../components/MathRenderer.astro";
 import { getReadingTime } from "../../../utils/reading-time";
+import { hasMath } from "../../../utils/has-math";
 import { resolveBlogSiteIdentity } from "../../../utils/site-identity";
 
 const slug = decodeSlug(Astro.params.slug);
@@ -32,6 +35,11 @@ const publishDate = post.data.publishedAt?.toISOString().slice(0, 10) ?? null;
 	publishedTime={post.data.publishedAt?.toISOString() ?? null}
 	modifiedTime={post.data.updatedAt.toISOString()}
 	lang="en"
+	alternates={[
+		{ hreflang: "ja", path: `/posts/${slug}` },
+		{ hreflang: "en", path: `/en/posts/${slug}` },
+		{ hreflang: "x-default", path: `/posts/${slug}` },
+	]}
 	content={{ collection: "posts", id: post.data.id, slug }}
 >
 	<article class="article">
@@ -58,8 +66,9 @@ const publishDate = post.data.publishedAt?.toISOString().slice(0, 10) ?? null;
 		</header>
 
 		<div class="article-content">
-			<PortableText value={content} />
+			<PortableText value={content} components={{ type: { code: CodeBlock } }} />
 		</div>
+		{hasMath(content) && <MathRenderer />}
 	</article>
 </Base>
 

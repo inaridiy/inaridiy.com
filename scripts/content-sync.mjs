@@ -1,20 +1,22 @@
 /**
- * Two-way sync between content/posts/*.md and the EmDash CMS.
+ * Two-way sync between content/<collection>/*.md and the EmDash CMS.
+ * Covers posts, pages, and activities (see COLLECTIONS in the shared
+ * format module).
  *
  *   node scripts/content-sync.mjs pull            CMS -> local Markdown files
  *   node scripts/content-sync.mjs push            local Markdown files -> CMS
- *   node scripts/content-sync.mjs push --prune    ...and delete remote posts
+ *   node scripts/content-sync.mjs push --prune    ...and delete remote entries
  *                                                 that have no local file
  *
  * Markdown is the interchange format: EmDash stores Portable Text, and the
  * official client converts PT <-> Markdown on read/write (lossless for
  * standard blocks; unknown blocks survive as <!--ec:block ... --> fences).
+ * Activities are frontmatter-only files (no rich-text body).
  *
  * Auth (in priority order):
- *   - EMDASH_TOKEN          access token
- *   - EMDASH_REFRESH_TOKEN  90-day refresh token (recommended for CI; the
- *                           client auto-refreshes access tokens with it)
- *   - dev bypass            when EMDASH_URL is localhost (default)
+ *   - EMDASH_TOKEN / EMDASH_REFRESH_TOKEN env vars (CI)
+ *   - stored credentials from `emdash login` (~/.config/emdash/auth.json)
+ *   - dev bypass when EMDASH_URL is localhost (default)
  *
  * The translator plugin owns the *_en fields — they are never synced here.
  * Taxonomies (category/tag) are managed in the admin, not in frontmatter.
@@ -26,14 +28,7 @@ import { join } from "node:path";
 import { EmDashClient } from "emdash/client";
 // Canonical file format — shared with the github-export plugin so the
 // event-driven CMS->git commits and this script produce identical bytes.
-import {
-	FRONT_FIELDS,
-	parseEntry,
-	serializeEntry,
-} from "emdash-plugin-github-export/format";
-
-const CONTENT_DIR = "content/posts";
-const COLLECTION = "posts";
+import { COLLECTIONS, parseEntry, serializeEntry } from "emdash-plugin-github-export/format";
 
 /** Stored credentials from `emdash login` (~/.config/emdash/auth.json). */
 function storedCredentials(baseUrl) {
@@ -67,113 +62,127 @@ function createClient() {
 	});
 }
 
-async function fetchRemotePosts(client) {
-	const posts = [];
+async function fetchRemote(client, collection) {
+	const items = [];
 	let cursor;
 	do {
-		const page = await client.list(COLLECTION, { limit: 100, cursor });
-		posts.push(...page.items);
+		const page = await client.list(collection, { limit: 100, cursor });
+		items.push(...page.items);
 		cursor = page.nextCursor ?? undefined;
 	} while (cursor);
-	return posts.filter((post) => post.slug);
+	return items.filter((item) => item.slug);
 }
 
-/** Normalized comparable snapshot of one post. */
-function snapshot(entry) {
+/** Normalized comparable snapshot of one entry. */
+function snapshot(entry, format) {
 	return JSON.stringify({
 		status: entry.status,
-		fields: FRONT_FIELDS.map((f) => entry.fields[f] ?? ""),
+		fields: format.fields.map((f) => entry.fields[f] ?? ""),
 		body: entry.body.trim(),
 	});
 }
 
-function remoteToEntry(item) {
+function remoteToEntry(item, format) {
 	return {
 		slug: item.slug,
 		status: item.status,
 		fields: Object.fromEntries(
-			FRONT_FIELDS.map((f) => [f, typeof item.data[f] === "string" ? item.data[f] : ""]),
+			format.fields.map((f) => [f, typeof item.data[f] === "string" ? item.data[f] : ""]),
 		),
-		body: typeof item.data.content === "string" ? item.data.content : "",
+		body:
+			format.body && typeof item.data[format.body] === "string" ? item.data[format.body] : "",
 	};
+}
+
+function entryToData(entry, format) {
+	const data = { ...entry.fields };
+	if (format.body) data[format.body] = entry.body;
+	return data;
 }
 
 async function pull() {
 	const client = createClient();
-	await mkdir(CONTENT_DIR, { recursive: true });
-	const remote = await fetchRemotePosts(client);
-	const keep = new Set();
+	for (const [collection, format] of Object.entries(COLLECTIONS)) {
+		await mkdir(format.dir, { recursive: true });
+		const remote = await fetchRemote(client, collection);
+		const keep = new Set();
 
-	for (const listed of remote) {
-		// get() converts Portable Text fields to Markdown
-		const item = await client.get(COLLECTION, listed.id);
-		const entry = remoteToEntry({ ...item, slug: listed.slug });
-		const file = `${listed.slug}.md`;
-		keep.add(file);
-		await writeFile(join(CONTENT_DIR, file), serializeEntry(entry), "utf8");
-		console.log(`pulled  ${file}`);
-	}
+		for (const listed of remote) {
+			// get() converts Portable Text fields to Markdown
+			const item = await client.get(collection, listed.id);
+			const entry = remoteToEntry({ ...item, slug: listed.slug }, format);
+			const file = `${listed.slug}.md`;
+			keep.add(file);
+			await writeFile(join(format.dir, file), serializeEntry(entry, format.fields), "utf8");
+			console.log(`pulled  ${format.dir}/${file}`);
+		}
 
-	for (const file of await readdir(CONTENT_DIR)) {
-		if (file.endsWith(".md") && !keep.has(file)) {
-			await unlink(join(CONTENT_DIR, file));
-			console.log(`removed ${file} (no longer on the CMS)`);
+		for (const file of await readdir(format.dir)) {
+			if (file.endsWith(".md") && !keep.has(file)) {
+				await unlink(join(format.dir, file));
+				console.log(`removed ${format.dir}/${file} (no longer on the CMS)`);
+			}
 		}
 	}
-	console.log(`done: ${remote.length} post(s)`);
+	console.log("done");
 }
 
 async function push({ prune = false } = {}) {
 	const client = createClient();
-	await mkdir(CONTENT_DIR, { recursive: true });
-	const files = (await readdir(CONTENT_DIR)).filter((f) => f.endsWith(".md"));
-	const remote = await fetchRemotePosts(client);
-	const remoteBySlug = new Map(remote.map((item) => [item.slug, item]));
-	const localSlugs = new Set();
+	for (const [collection, format] of Object.entries(COLLECTIONS)) {
+		await mkdir(format.dir, { recursive: true });
+		const files = (await readdir(format.dir)).filter((f) => f.endsWith(".md"));
+		const remote = await fetchRemote(client, collection);
+		const remoteBySlug = new Map(remote.map((item) => [item.slug, item]));
+		const localSlugs = new Set();
 
-	for (const file of files) {
-		const text = await readFile(join(CONTENT_DIR, file), "utf8");
-		const entry = parseEntry(text, file.replace(/\.md$/, ""));
-		localSlugs.add(entry.slug);
-		const data = { ...entry.fields, content: entry.body };
-		const existing = remoteBySlug.get(entry.slug);
+		for (const file of files) {
+			const text = await readFile(join(format.dir, file), "utf8");
+			const entry = parseEntry(text, file.replace(/\.md$/, ""));
+			localSlugs.add(entry.slug);
+			const data = entryToData(entry, format);
+			const existing = remoteBySlug.get(entry.slug);
 
-		if (!existing) {
-			// Status is a lifecycle transition, not an update field: create as
-			// draft, then publish (same flow as the official CLI).
-			const created = await client.create(COLLECTION, { slug: entry.slug, data });
-			if (entry.status === "published") await client.publish(COLLECTION, created.id);
-			console.log(`created ${entry.slug}`);
-			continue;
+			if (!existing) {
+				// Status is a lifecycle transition, not an update field: create as
+				// draft, then publish (same flow as the official CLI).
+				const created = await client.create(collection, { slug: entry.slug, data });
+				if (entry.status === "published") await client.publish(collection, created.id);
+				console.log(`created ${collection}/${entry.slug}`);
+				continue;
+			}
+
+			// Re-read for the _rev token + Markdown-converted comparison
+			const current = await client.get(collection, existing.id);
+			const unchanged =
+				snapshot(remoteToEntry({ ...current, slug: entry.slug }, format), format) ===
+				snapshot(entry, format);
+			if (unchanged) {
+				console.log(`skip    ${collection}/${entry.slug} (unchanged)`);
+				continue;
+			}
+			await client.update(collection, existing.id, { data, _rev: current._rev });
+			if (entry.status === "published") {
+				await client.publish(collection, existing.id);
+			} else if (entry.status === "draft" && current.status === "published") {
+				await client.unpublish(collection, existing.id);
+			}
+			console.log(`updated ${collection}/${entry.slug}`);
 		}
 
-		// Re-read for the _rev token + Markdown-converted comparison
-		const current = await client.get(COLLECTION, existing.id);
-		const unchanged =
-			snapshot(remoteToEntry({ ...current, slug: entry.slug })) === snapshot(entry);
-		if (unchanged) {
-			console.log(`skip    ${entry.slug} (unchanged)`);
-			continue;
+		for (const item of remote) {
+			if (localSlugs.has(item.slug)) continue;
+			if (prune) {
+				await client.delete(collection, item.id);
+				console.log(`deleted ${collection}/${item.slug} (pruned)`);
+			} else {
+				console.log(
+					`notice  ${collection}/${item.slug} exists on the CMS but not locally (use --prune to delete)`,
+				);
+			}
 		}
-		await client.update(COLLECTION, existing.id, { data, _rev: current._rev });
-		if (entry.status === "published") {
-			await client.publish(COLLECTION, existing.id);
-		} else if (entry.status === "draft" && current.status === "published") {
-			await client.unpublish(COLLECTION, existing.id);
-		}
-		console.log(`updated ${entry.slug}`);
 	}
-
-	for (const item of remote) {
-		if (localSlugs.has(item.slug)) continue;
-		if (prune) {
-			await client.delete(COLLECTION, item.id);
-			console.log(`deleted ${item.slug} (pruned)`);
-		} else {
-			console.log(`notice  ${item.slug} exists on the CMS but not locally (use --prune to delete)`);
-		}
-	}
-	console.log(`done: ${files.length} file(s)`);
+	console.log("done");
 }
 
 const mode = process.argv[2];
