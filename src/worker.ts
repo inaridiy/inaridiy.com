@@ -10,8 +10,21 @@ import { syncSearchIndex } from "./search-index";
 
 const emdashScheduled = createScheduledHandler();
 
+/** Canonical host — requests on *.workers.dev are 301'd here. */
+const CANONICAL_HOST = "inaridiy.com";
+
 export default {
 	...emdashWorker,
+	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+		const url = new URL(request.url);
+		if (url.hostname.endsWith(".workers.dev")) {
+			url.hostname = CANONICAL_HOST;
+			url.port = "";
+			return Response.redirect(url.toString(), 301);
+		}
+		const emdashFetch = (emdashWorker as unknown as Required<ExportedHandler<Env>>).fetch;
+		return emdashFetch(request as Parameters<typeof emdashFetch>[0], env, ctx);
+	},
 	scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
 		emdashScheduled(controller, env, ctx);
 		// The cron fires every minute (EmDash needs that cadence for scheduled

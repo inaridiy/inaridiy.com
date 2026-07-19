@@ -1,8 +1,12 @@
+import { env } from "cloudflare:workers";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 import {
+	chunkBatch,
 	hashSource,
+	parseTranslatedArray,
 	preparePortableText,
 	translateBatch,
+	SYSTEM_PROMPT,
 	type GatewayConfig,
 } from "./translate";
 
@@ -10,12 +14,21 @@ import {
  * Auto-translation plugin (runtime).
  *
  * On publish/save of published content, translates the Japanese source
- * fields into English shadow fields (`*_en`) through the Cloudflare AI
- * Gateway unified endpoint. The site renders the `_en` fields on /en/*.
+ * fields into English shadow fields (`*_en`). The site renders the `_en`
+ * fields on /en/*.
  *
- * The model is a single `{provider}/{model}` string, so switching models
- * (Workers AI, OpenAI, Anthropic, ...) is a settings change in the admin —
- * provider API keys are stored in the AI Gateway (BYOK), never here.
+ * Model routing — the model setting is a single `{provider}/{model}` string:
+ *   - `workers-ai/...` (default): calls the Workers AI binding directly.
+ *     No API keys. When a gateway ID is set, requests route through that
+ *     AI Gateway (analytics/caching) via the binding's gateway option.
+ *   - any other provider (`openai/...`, `anthropic/...`): calls the AI
+ *     Gateway unified endpoint over HTTP; requires account ID + gateway ID
+ *     and BYOK provider keys stored in the gateway.
+ *
+ * Works with ZERO configuration out of the box (Workers AI + no gateway).
+ *
+ * TRUSTED-ONLY: reaches the AI binding via `import { env } from
+ * "cloudflare:workers"`. Do not move to `sandboxed: []`.
  *
  * A source-content hash in KV skips retranslation when the Japanese text
  * didn't change (e.g. admin fixes a typo in the English fields).
@@ -41,23 +54,87 @@ const COLLECTION_FIELDS: Record<
 };
 
 const DEFAULT_MODEL = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+/** Segments per model call — keeps output within model token limits. */
+const CHUNK_SIZE = 40;
+
+interface AiBindingLike {
+	run(
+		model: string,
+		inputs: Record<string, unknown>,
+		options?: Record<string, unknown>,
+	): Promise<unknown>;
+}
 
 interface Settings {
 	enabled: boolean;
-	accountId: string;
-	gatewayId: string;
 	model: string;
+	gatewayId: string;
+	accountId: string;
 	apiToken: string;
 }
 
 async function readSettings(ctx: PluginContext): Promise<Settings> {
 	return {
 		enabled: (await ctx.kv.get<boolean>("settings:enabled")) ?? true,
-		accountId: (await ctx.kv.get<string>("settings:accountId")) ?? "",
-		gatewayId: (await ctx.kv.get<string>("settings:gatewayId")) ?? "",
 		model: (await ctx.kv.get<string>("settings:model")) || DEFAULT_MODEL,
+		gatewayId: (await ctx.kv.get<string>("settings:gatewayId")) ?? "",
+		accountId: (await ctx.kv.get<string>("settings:accountId")) ?? "",
 		apiToken: (await ctx.kv.get<string>("settings:apiToken")) ?? "",
 	};
+}
+
+/** Translate one chunk of strings with whichever route the model needs. */
+async function translateChunk(
+	texts: string[],
+	settings: Settings,
+	ctx: PluginContext,
+): Promise<string[]> {
+	if (settings.model.startsWith("workers-ai/")) {
+		const ai = (env as { AI?: AiBindingLike }).AI;
+		if (!ai) throw new Error("Workers AI binding (AI) is not available");
+		const result = (await ai.run(
+			settings.model.slice("workers-ai/".length),
+			{
+				messages: [
+					{ role: "system", content: SYSTEM_PROMPT },
+					{ role: "user", content: JSON.stringify(texts) },
+				],
+				temperature: 0.2,
+				max_tokens: 4096,
+			},
+			settings.gatewayId ? { gateway: { id: settings.gatewayId } } : undefined,
+		)) as {
+			response?: unknown;
+			choices?: Array<{ message?: { content?: unknown } }>;
+		};
+		// Depending on the model, Workers AI returns either the legacy
+		// { response } shape or an OpenAI-style chat completions envelope.
+		const text =
+			typeof result?.response === "string"
+				? result.response
+				: result?.choices?.[0]?.message?.content;
+		if (typeof text !== "string" || text.trim() === "") {
+			throw new Error(
+				`Workers AI reply has no response text: ${JSON.stringify(result).slice(0, 300)}`,
+			);
+		}
+		return parseTranslatedArray(text, texts.length);
+	}
+
+	// External provider — AI Gateway unified endpoint (BYOK keys live in the gateway)
+	if (!settings.accountId || !settings.gatewayId) {
+		throw new Error(
+			`model "${settings.model}" needs the AI Gateway route: set account ID and gateway ID`,
+		);
+	}
+	if (!ctx.http) throw new Error("network capability unavailable");
+	const gateway: GatewayConfig = {
+		accountId: settings.accountId,
+		gatewayId: settings.gatewayId,
+		model: settings.model,
+		apiToken: settings.apiToken || undefined,
+	};
+	return translateBatch(texts, gateway, (url, init) => ctx.http!.fetch(url, init));
 }
 
 interface ContentEvent {
@@ -66,36 +143,32 @@ interface ContentEvent {
 }
 
 async function translateEntry(event: ContentEvent, ctx: PluginContext): Promise<void> {
-	const { collection, content } = event;
+	const { collection } = event;
 	const fields = COLLECTION_FIELDS[collection];
 	if (!fields) return;
-
-	const id = typeof content.id === "string" ? content.id : null;
+	const id = typeof event.content.id === "string" ? event.content.id : null;
 	if (!id) return;
-	// Drafts are translated when they get published (content:afterPublish).
-	if (content.status !== undefined && content.status !== "published") return;
 
 	const settings = await readSettings(ctx);
 	if (!settings.enabled) return;
-	if (!settings.accountId || !settings.gatewayId) {
-		ctx.log.warn(
-			"auto-translator: AI Gateway not configured (set account/gateway in Admin -> Translator)",
-		);
-		return;
-	}
+
+	// Re-read the entry instead of trusting the (possibly slim) event payload
+	const item = await ctx.content!.get(collection, id);
+	if (!item || item.status !== "published") return;
+	const data = item.data;
 
 	// Collect translatable source strings in a fixed order.
 	const stringEntries = Object.entries(fields.strings).filter(
-		([source]) => typeof content[source] === "string" && String(content[source]).trim() !== "",
+		([source]) => typeof data[source] === "string" && String(data[source]).trim() !== "",
 	);
 	const ptEntries = Object.entries(fields.portableText).map(([source, target]) => ({
 		source,
 		target,
-		prepared: preparePortableText(content[source]),
+		prepared: preparePortableText(data[source]),
 	}));
 
 	const batch: string[] = [
-		...stringEntries.map(([source]) => String(content[source])),
+		...stringEntries.map(([source]) => String(data[source])),
 		...ptEntries.flatMap((entry) => entry.prepared.spans.map((span) => String(span.text))),
 	];
 	if (batch.length === 0) return;
@@ -105,22 +178,11 @@ async function translateEntry(event: ContentEvent, ctx: PluginContext): Promise<
 	const sourceHash = hashSource(JSON.stringify(batch));
 	if ((await ctx.kv.get<string>(hashKey)) === sourceHash) return;
 
-	if (!ctx.http) {
-		ctx.log.warn("auto-translator: network capability unavailable");
-		return;
-	}
-
-	const gateway: GatewayConfig = {
-		accountId: settings.accountId,
-		gatewayId: settings.gatewayId,
-		model: settings.model,
-		apiToken: settings.apiToken || undefined,
-	};
-
 	try {
-		const translated = await translateBatch(batch, gateway, (url, init) =>
-			ctx.http!.fetch(url, init),
-		);
+		const translated: string[] = [];
+		for (const chunk of chunkBatch(batch, CHUNK_SIZE)) {
+			translated.push(...(await translateChunk(chunk, settings, ctx)));
+		}
 
 		const updates: Record<string, unknown> = {};
 		let cursor = 0;
@@ -185,26 +247,14 @@ interface LastRun {
 async function settingsBlocks(ctx: PluginContext) {
 	const settings = await readSettings(ctx);
 	const last = await ctx.kv.get<LastRun>("state:last");
-	const configured = Boolean(settings.accountId && settings.gatewayId);
 
 	return {
 		blocks: [
 			{ type: "header", text: "Auto Translator" },
 			{
 				type: "context",
-				text: "Translates published Japanese content into the *_en fields via Cloudflare AI Gateway. Model format: {provider}/{model} — e.g. workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast, openai/gpt-4o-mini, anthropic/claude-sonnet-4-5. Store provider API keys in the AI Gateway (BYOK).",
+				text: "Translates published Japanese content into the *_en fields. Default model runs on Workers AI — no keys needed; set a gateway ID to route it through an AI Gateway. External models (openai/gpt-4o-mini, anthropic/claude-sonnet-4-5, ...) additionally need the account ID and BYOK keys stored in the gateway.",
 			},
-			...(configured
-				? []
-				: [
-						{
-							type: "banner",
-							title: "Not configured",
-							description:
-								"Set your Cloudflare account ID and AI Gateway ID to enable translation.",
-							variant: "alert",
-						},
-					]),
 			{
 				type: "form",
 				block_id: "settings",
@@ -217,21 +267,21 @@ async function settingsBlocks(ctx: PluginContext) {
 					},
 					{
 						type: "text_input",
-						action_id: "accountId",
-						label: "Cloudflare account ID",
-						initial_value: settings.accountId,
+						action_id: "model",
+						label: "Model ({provider}/{model})",
+						initial_value: settings.model,
 					},
 					{
 						type: "text_input",
 						action_id: "gatewayId",
-						label: "AI Gateway ID",
+						label: "AI Gateway ID (optional for workers-ai)",
 						initial_value: settings.gatewayId,
 					},
 					{
 						type: "text_input",
-						action_id: "model",
-						label: "Model ({provider}/{model})",
-						initial_value: settings.model,
+						action_id: "accountId",
+						label: "Cloudflare account ID (external providers only)",
+						initial_value: settings.accountId,
 					},
 					{
 						type: "secret_input",
@@ -288,7 +338,7 @@ export default {
 			timeout: 120000,
 			errorPolicy: "continue",
 			handler: async (event: ContentEvent, ctx: PluginContext) => {
-				await translateEntry({ ...event, content: { ...event.content, status: "published" } }, ctx);
+				await translateEntry(event, ctx);
 			},
 		},
 	},
@@ -301,9 +351,9 @@ export default {
 				if (interaction.type === "form_submit" && interaction.action_id === "save_settings") {
 					const values = interaction.values ?? {};
 					await ctx.kv.set("settings:enabled", Boolean(values.enabled));
-					await ctx.kv.set("settings:accountId", String(values.accountId ?? "").trim());
-					await ctx.kv.set("settings:gatewayId", String(values.gatewayId ?? "").trim());
 					await ctx.kv.set("settings:model", String(values.model ?? "").trim() || DEFAULT_MODEL);
+					await ctx.kv.set("settings:gatewayId", String(values.gatewayId ?? "").trim());
+					await ctx.kv.set("settings:accountId", String(values.accountId ?? "").trim());
 					const token = String(values.apiToken ?? "").trim();
 					// Empty secret input means "keep the stored token"
 					if (token !== "") await ctx.kv.set("settings:apiToken", token);

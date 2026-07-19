@@ -10,8 +10,15 @@ import { translatorPlugin } from "emdash-plugin-translator";
 import { defineConfig, fontProviders } from "astro/config";
 import emdash from "emdash/astro";
 
+// Canonical origin. The Worker is also reachable on *.workers.dev; without
+// this, EmDash derives auth/email/redirect URLs from the request origin.
+// Dev keeps localhost (passkeys/device flow would break otherwise).
+const SITE_URL = "https://inaridiy.com";
+const isDev = process.argv.includes("dev");
+
 export default defineConfig({
 	output: "server",
+	site: SITE_URL,
 	adapter: cloudflare(),
 	image: {
 		layout: "constrained",
@@ -22,6 +29,7 @@ export default defineConfig({
 		emdash({
 			database: d1({ binding: "DB", session: "auto" }),
 			storage: r2({ binding: "MEDIA" }),
+			siteUrl: isDev ? undefined : SITE_URL,
 			// searchSync / emailSender are trusted-only (import cloudflare:workers env)
 			plugins: [
 				formsPlugin(),

@@ -26,6 +26,7 @@ const publishDate = post.data.publishedAt?.toISOString().slice(0, 10) ?? null;
 	title={`${title} — ${siteTitle}`}
 	pageTitle={title}
 	description={excerpt}
+	image={`${Astro.url.origin}/og/posts/${slug}.png?lang=en`}
 	canonical={`${Astro.url.origin}/en/posts/${slug}`}
 	type="article"
 	publishedTime={post.data.publishedAt?.toISOString() ?? null}

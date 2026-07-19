@@ -20,6 +20,8 @@
  * Taxonomies (category/tag) are managed in the admin, not in frontmatter.
  */
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { EmDashClient } from "emdash/client";
 // Canonical file format — shared with the github-export plugin so the
@@ -33,15 +35,34 @@ import {
 const CONTENT_DIR = "content/posts";
 const COLLECTION = "posts";
 
+/** Stored credentials from `emdash login` (~/.config/emdash/auth.json). */
+function storedCredentials(baseUrl) {
+	try {
+		const auth = JSON.parse(
+			readFileSync(join(homedir(), ".config", "emdash", "auth.json"), "utf8"),
+		);
+		return auth[baseUrl] ?? null;
+	} catch {
+		return null;
+	}
+}
+
 function createClient() {
 	const baseUrl = process.env.EMDASH_URL || "http://localhost:4321";
-	const token = process.env.EMDASH_TOKEN || "";
-	const refreshToken = process.env.EMDASH_REFRESH_TOKEN || undefined;
+	let token = process.env.EMDASH_TOKEN || "";
+	let refreshToken = process.env.EMDASH_REFRESH_TOKEN || "";
+	if (!token && !refreshToken) {
+		const cred = storedCredentials(baseUrl);
+		if (cred) {
+			token = cred.accessToken ?? "";
+			refreshToken = cred.refreshToken ?? "";
+		}
+	}
 	const isLocal = baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
 	return new EmDashClient({
 		baseUrl,
 		token: token || undefined,
-		refreshToken,
+		refreshToken: refreshToken || undefined,
 		devBypass: !token && !refreshToken && isLocal,
 	});
 }

@@ -21,21 +21,20 @@
 			"bucket_name": "inaridiy-media",
 		},
 	],
-	// AI Search (formerly AutoRAG). To enable:
-	//  1. Create an AI Search API token in the dashboard (AI > AI Search > Tokens)
-	//  2. wrangler ai-search create inaridiy-blog-search --type builtin \
-	//       --hybrid-search true --custom-metadata url:text --custom-metadata title:text \
-	//       --custom-metadata lang:text --custom-metadata collection:text --custom-metadata hash:text
-	//  3. Uncomment this binding and run `wrangler types`
-	// The cron in src/worker.ts pushes published content into its built-in
-	// storage (see src/search-index.ts); /search queries it. Without the
-	// binding, /search falls back to the built-in full-text search.
-	// "ai_search": [
-	// 	{
-	// 		"binding": "SEARCH",
-	// 		"instance_name": "inaridiy-blog-search",
-	// 	},
-	// ],
+	// Workers AI — used by the translator plugin (no API keys; requests can
+	// be routed through an AI Gateway via the plugin's gateway setting)
+	"ai": {
+		"binding": "AI",
+	},
+	// AI Search (formerly AutoRAG), built-in storage. The search-sync plugin
+	// pushes content on publish; src/search-index.ts reconciles hourly;
+	// /search queries it (falls back to FTS if the binding is removed).
+	"ai_search": [
+		{
+			"binding": "SEARCH",
+			"instance_name": "inaridiy-blog-search",
+		},
+	],
 	// Cloudflare Email Sending (inaridiy.com is onboarded). Used by the
 	// email-sender plugin as EmDash's email transport.
 	"send_email": [

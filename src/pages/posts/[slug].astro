@@ -33,7 +33,8 @@ const seo = getSeoMeta(post, {
 	siteTitle,
 	siteUrl: Astro.url.origin,
 	path: `/posts/${slug}`,
-	defaultOgImage: featuredImageUrl,
+	// Explicit featured image wins; otherwise the auto-generated OG card
+	defaultOgImage: featuredImageUrl ?? `${Astro.url.origin}/og/posts/${slug}.png`,
 });
 
 const readingTime = getReadingTime(post.data.content);

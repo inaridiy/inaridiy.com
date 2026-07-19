@@ -72,13 +72,23 @@ export function hashSource(input: string): string {
 	return (hash >>> 0).toString(16);
 }
 
-const SYSTEM_PROMPT = [
+export const SYSTEM_PROMPT = [
 	"You are a professional Japanese-to-English translator for a technical blog.",
 	"The user sends a JSON array of Japanese strings.",
 	"Translate each string into natural, concise English.",
 	"Keep code identifiers, product names, URLs, and inline formatting untouched.",
 	"Reply with ONLY a JSON array of the translated strings — same length, same order, no commentary, no code fences.",
 ].join(" ");
+
+/** Split a batch into chunks so a single model call never needs an
+ * excessively long output (long posts overflow max output tokens). */
+export function chunkBatch<T>(items: T[], size: number): T[][] {
+	const chunks: T[][] = [];
+	for (let i = 0; i < items.length; i += size) {
+		chunks.push(items.slice(i, i + size));
+	}
+	return chunks;
+}
 
 /** Extract a JSON array from an LLM reply, tolerating code fences and prose. */
 export function parseTranslatedArray(raw: string, expectedLength: number): string[] {

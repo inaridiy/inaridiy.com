@@ -7,9 +7,12 @@ import type { PluginDescriptor } from "emdash";
  * declares identity and the trust contract. The runtime logic lives in
  * ./sandbox-entry.ts, referenced via the package's `./sandbox` export.
  *
- * Runtime configuration (AI Gateway account/gateway/model/token) is KV-backed
- * and edited on the plugin's admin page (Admin -> Translator), which is how
- * standard-format EmDash plugins are configured.
+ * Runtime configuration (model / gateway) is KV-backed and edited on the
+ * plugin's admin page (Admin -> Translator). Default model runs on the
+ * Workers AI binding with zero configuration.
+ *
+ * TRUSTED-ONLY: the runtime entry reaches the AI binding through
+ * `import { env } from "cloudflare:workers"`. Do not move to `sandboxed: []`.
  */
 export function translatorPlugin(): PluginDescriptor {
 	return {
