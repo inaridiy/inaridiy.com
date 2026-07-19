@@ -93,21 +93,22 @@ pnpm deploy           # = astro build && wrangler deploy
 
 仕組み: インデックス登録は**イベント駆動**。`plugins/search-sync` プラグインが記事の公開/更新/非公開/削除フックで、対象エントリを Markdown 化して AI Search の組み込みストレージへ即時 upsert / 削除する (自動英訳より後の priority で動くので、同一リクエスト内で `*_en` も反映される)。cron (毎時 0 分、`src/worker.ts` → `src/search-index.ts`) は取りこぼし用の照合バックストップ。`/search` の「AI に聞く」は `chatCompletions` (RAG 回答) と `search` (出典リンク) を並列で呼ぶ。バインディングが無い環境では自動的に全文検索へフォールバックする。
 
-## 自動英訳 (AI Gateway) の有効化
+## 自動英訳
 
-1. ダッシュボードで AI Gateway を作成: **AI > AI Gateway** (例: gateway id `inaridiy-blog`)
-2. 使いたいプロバイダの API キーを Gateway に保存 (BYOK)。Workers AI を使う場合は Workers AI 権限付きの Cloudflare API トークンを登録
-3. (推奨) Gateway を Authenticated にして、そのトークンを控える
-4. 管理画面 **Admin > Translator** で設定:
-   - Cloudflare account ID
-   - AI Gateway ID
-   - Model — `{provider}/{model}` 形式。**ここを書き換えるだけでモデルを切り替えられる**
-     - `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`
-     - `openai/gpt-4o-mini`
-     - `anthropic/claude-sonnet-4-5` など
-   - Gateway token (Authenticated Gateway の場合)
+**ゼロ設定で動く。** 既定モデルは `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast` で、Workers AI バインディングを直接呼ぶためキー不要。管理画面 **Admin > Translator** の Model 欄 (`{provider}/{model}` 形式) を書き換えるだけでモデルを切り替えられる。
 
-仕組み: 記事の公開/更新時に `content:afterSave` / `content:afterPublish` フックが発火し、AI Gateway の unified endpoint (`/compat/chat/completions`) で本文を翻訳して `*_en` フィールドへ書き戻す。日本語ソースのハッシュを KV に保存し、本文が変わっていなければ再翻訳しない (Translator 管理画面からキャッシュのリセット可)。コードブロックとインラインコードは翻訳対象外。
+- `workers-ai/...` — バインディング直呼び。Gateway ID を設定するとその AI Gateway 経由でルーティング (分析/キャッシュ)
+- `openai/gpt-4o-mini`, `google-ai-studio/gemini-*`, `anthropic/...` など外部プロバイダ — AI Gateway の unified endpoint (`/compat`) を使用。**account ID + Gateway ID の設定と、プロバイダの API キーを Gateway に BYOK 保存**が必要 (キー未保存だと 400 "Missing or invalid Authorization header" になる)
+
+仕組み: 記事の公開/更新時に `content:afterSave` / `content:afterPublish` フックが発火し、本文を翻訳して `*_en` フィールドへ書き戻す。日本語ソースのハッシュを KV に保存し、本文が変わっていなければ再翻訳しない (Translator 管理画面からキャッシュのリセット可)。コードブロックとインラインコードは翻訳対象外。長文は 40 セグメントずつ分割して翻訳する。
+
+## OGP 画像の自動生成
+
+`featured_image` の無い記事は `/og/posts/<スラッグ>.png` (EN は `?lang=en`) が og:image になる。白背景 + 太字タイトル + サイト名 + 日付だけの 1200×630 PNG を satori + resvg で動的生成。日本語フォント (Noto Sans JP) はタイトルの文字だけ Google Fonts からサブセット取得してエッジキャッシュする。
+
+## 正規オリジン (inaridiy.com)
+
+絶対 URL (認証メールのリンク等) は次の優先順で決まる: DB の `emdash:site_url` 設定 (管理画面 Settings / セットアップ時に保存) → `astro.config.mjs` の `emdash({ siteUrl })` → リクエストオリジン。**セットアップウィザードを workers.dev 上で完了すると DB に workers.dev が保存される罠がある** (修正済み)。加えて worker が `*.workers.dev` へのリクエストを apex に 301 する。
 
 ## 記事の Markdown 管理 / GitHub 同期
 
