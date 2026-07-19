@@ -1,4 +1,5 @@
 ---
+cms_id: "01KXWYWAA0BSMAM9RT0GBZJW65"
 slug: "markdown-workflow"
 status: "published"
 title: "記事は Markdown で書いて git で管理する"
