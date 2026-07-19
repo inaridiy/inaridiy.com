@@ -8,72 +8,94 @@ import Base from "../layouts/Base.astro";
 const query = Astro.url.searchParams.get("q")?.trim() || "";
 const mode = Astro.url.searchParams.get("mode") === "ai" ? "ai" : "keyword";
 
-// AI Search binding — only present once the ai_search binding in
-// wrangler.jsonc is enabled (see comments there). Falls back to FTS.
+// AI Search binding. Hybrid (vector + keyword/trigram) search handles
+// Japanese properly — EmDash's SQLite FTS can't tokenize CJK, so it is
+// only the fallback when the binding is absent (plain local dev).
 const searchBinding = (env as { SEARCH?: AiSearchInstance }).SEARCH;
 
-interface AiSource {
+interface ResultRow {
 	url: string;
 	title: string;
+	snippet?: string;
+	/** Pre-sanitized HTML snippet (EmDash FTS <mark> highlighting) */
+	snippetHtml?: string;
 	lang?: string;
-	score: number;
 }
 
 let aiAnswer: string | null = null;
-let aiSources: AiSource[] = [];
-let aiError: string | null = null;
-let ftsResults: Awaited<ReturnType<typeof search>>["items"] = [];
+let results: ResultRow[] = [];
+let searchError: string | null = null;
+let usedFts = false;
 
-if (query && mode === "ai" && searchBinding) {
+function chunksToRows(
+	chunks: Array<{ score: number; text: string; item?: { metadata?: Record<string, unknown> } }>,
+): ResultRow[] {
+	const seen = new Set<string>();
+	const rows: ResultRow[] = [];
+	for (const chunk of chunks) {
+		const meta = chunk.item?.metadata ?? {};
+		const url = typeof meta.url === "string" ? meta.url : null;
+		if (!url || seen.has(url)) continue;
+		seen.add(url);
+		rows.push({
+			url,
+			title: typeof meta.title === "string" ? meta.title : url,
+			snippet: chunk.text.replace(/^#[^\n]*\n+|^URL:[^\n]*\n+/gm, "").slice(0, 160),
+			lang: typeof meta.lang === "string" ? meta.lang : undefined,
+		});
+	}
+	return rows;
+}
+
+if (query && searchBinding) {
 	try {
-		const [chat, retrieval] = await Promise.all([
-			searchBinding.chatCompletions({
-				messages: [{ role: "user", content: query }],
-			}),
-			searchBinding.search({
+		if (mode === "ai") {
+			const [chat, retrieval] = await Promise.all([
+				searchBinding.chatCompletions({
+					messages: [{ role: "user", content: query }],
+				}),
+				searchBinding.search({
+					query,
+					ai_search_options: { retrieval: { max_num_results: 8 } },
+				}),
+			]);
+			aiAnswer = chat.choices?.[0]?.message?.content ?? null;
+			results = chunksToRows([...(chat.chunks ?? []), ...(retrieval.chunks ?? [])]).slice(0, 8);
+		} else {
+			const retrieval = await searchBinding.search({
 				query,
-				ai_search_options: { retrieval: { max_num_results: 8 } },
-			}),
-		]);
-		aiAnswer = chat.choices?.[0]?.message?.content ?? null;
-		const seen = new Set<string>();
-		for (const chunk of [...(chat.chunks ?? []), ...(retrieval.chunks ?? [])]) {
-			const meta = (chunk.item?.metadata ?? {}) as Record<string, unknown>;
-			const url = typeof meta.url === "string" ? meta.url : null;
-			if (!url || seen.has(url)) continue;
-			seen.add(url);
-			aiSources.push({
-				url,
-				title: typeof meta.title === "string" ? meta.title : url,
-				lang: typeof meta.lang === "string" ? meta.lang : undefined,
-				score: chunk.score,
+				ai_search_options: { retrieval: { max_num_results: 12 } },
 			});
+			results = chunksToRows(retrieval.chunks ?? []);
 		}
-		aiSources = aiSources.slice(0, 8);
 	} catch (error) {
-		aiError = error instanceof Error ? error.message : String(error);
+		searchError = error instanceof Error ? error.message : String(error);
 	}
 }
 
-// Keyword mode — or fallback when AI search is unavailable/failed
-const useFts = Boolean(query) && (mode === "keyword" || !searchBinding || aiError);
-if (useFts) {
+// Fallback: EmDash full-text search (local dev / hybrid failure)
+if (query && (!searchBinding || searchError)) {
+	usedFts = true;
 	const { items } = await search(query, {
 		collections: ["posts", "pages", "activities"],
 		limit: 30,
 	});
-	ftsResults = items;
-}
-
-function resultHref(result: { collection?: string; slug?: string | null; id: string }): string {
-	const slug = result.slug ?? result.id;
-	if (result.collection === "pages") return slug === "about" ? "/about" : `/pages/${slug}`;
-	if (result.collection === "activities") return "/activities";
-	return `/posts/${slug}`;
+	results = items.map((item) => ({
+		url:
+			item.collection === "pages"
+				? (item.slug ?? item.id) === "about"
+					? "/about"
+					: `/pages/${item.slug ?? item.id}`
+				: item.collection === "activities"
+					? "/activities"
+					: `/posts/${item.slug ?? item.id}`,
+		title: item.title ?? "Untitled",
+		snippetHtml: item.snippet ?? undefined,
+	}));
 }
 ---
 
-<Base title={query ? `Search: ${query}` : "Search"} description="記事検索(全文検索 + AI検索)">
+<Base title={query ? `Search: ${query}` : "Search"} description="記事検索(ハイブリッド検索 + AI 回答)">
 	<h1 class="page-title">Search</h1>
 
 	<form method="get" action="/search" class="search-form">
@@ -92,58 +114,51 @@ function resultHref(result: { collection?: string; slug?: string | null; id: str
 	</form>
 
 	{
-		mode === "ai" && query && !searchBinding && (
+		usedFts && query && (
 			<p class="notice">
-				AI 検索は Cloudflare にデプロイされた環境でのみ利用できます(ローカルでは全文検索に
-				フォールバックします)。
+				簡易検索(全文一致)で表示しています。
+				{searchError && ` AI 検索エラー: ${searchError}`}
 			</p>
 		)
 	}
-	{mode === "ai" && aiError && <p class="notice">AI 検索でエラーが発生したため、全文検索の結果を表示しています: {aiError}</p>}
 
 	{
 		aiAnswer && (
 			<section class="ai-answer">
 				<h2 class="section-label">AI の回答</h2>
 				<p class="ai-answer-text">{aiAnswer}</p>
-				{aiSources.length > 0 && (
-					<ol class="ai-sources">
-						{aiSources.map((source) => (
-							<li>
-								<a href={source.url}>{source.title}</a>
-								{source.lang === "en" && <span class="lang-badge">EN</span>}
-							</li>
-						))}
-					</ol>
-				)}
 				<p class="ai-note">回答は Cloudflare AI Search (RAG) による自動生成です。</p>
 			</section>
 		)
 	}
 
 	{
-		useFts && (
-			<>
-				{query && (
-					<p class="search-summary">
-						{ftsResults.length === 0
-							? `「${query}」に一致する結果はありませんでした`
-							: `「${query}」の検索結果: ${ftsResults.length}件`}
-					</p>
-				)}
-				<ol class="search-results">
-					{ftsResults.map((result) => (
-						<li class="search-result">
-							<a href={resultHref(result)} class="result-title">
-								{result.title ?? "Untitled"}
-							</a>
-							{result.snippet && <p class="result-snippet" set:html={result.snippet} />}
-						</li>
-					))}
-				</ol>
-			</>
+		query && (
+			<p class="search-summary">
+				{results.length === 0
+					? `「${query}」に一致する結果はありませんでした`
+					: `「${query}」の検索結果: ${results.length}件`}
+			</p>
 		)
 	}
+
+	<ol class="search-results">
+		{
+			results.map((result) => (
+				<li class="search-result">
+					<a href={result.url} class="result-title">
+						{result.title}
+						{result.lang === "en" && <span class="lang-badge">EN</span>}
+					</a>
+					{result.snippetHtml ? (
+						<p class="result-snippet" set:html={result.snippetHtml} />
+					) : (
+						result.snippet && <p class="result-snippet">{result.snippet}…</p>
+					)}
+				</li>
+			))
+		}
+	</ol>
 
 	{!query && <p class="hint">キーワード検索、または「AI に聞く」で記事内容への質問ができます。</p>}
 </Base>
@@ -228,13 +243,6 @@ function resultHref(result: { collection?: string; slug?: string | null; id: str
 		white-space: pre-wrap;
 		line-height: var(--leading-relaxed);
 		margin-bottom: var(--spacing-3);
-	}
-
-	.ai-sources {
-		list-style: decimal;
-		padding-left: 1.5em;
-		font-size: var(--font-size-sm);
-		margin-bottom: var(--spacing-2);
 	}
 
 	.lang-badge {

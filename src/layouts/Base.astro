@@ -45,6 +45,10 @@ const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings
 // If title already includes site title (from getSeoMeta), use as-is
 const fullTitle = title.includes(siteTitle) ? title : `${title} — ${siteTitle}`;
 
+// Every page gets an OG image: specific one if the page passed it,
+// otherwise the generated site card
+const ogImage = image ?? `${Astro.url.origin}/og/site.png`;
+
 const socialMenu = await getMenu("social");
 
 // Build public page context for plugin contributions
@@ -57,9 +61,9 @@ const pageCtx = createPublicPageContext({
 	pageTitle: pageTitle ?? title,
 	description,
 	canonical,
-	image,
+	image: ogImage,
 	content,
-	seo: { ogImage: image, robots },
+	seo: { ogImage, robots },
 	articleMeta: { publishedTime, modifiedTime, author },
 	siteName: siteTitle,
 });
