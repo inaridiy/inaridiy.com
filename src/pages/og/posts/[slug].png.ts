@@ -70,13 +70,14 @@ export const GET: APIRoute = async (context) => {
 
 	const fontData = await loadFont(`${title}${siteTitle}${date}0123456789-`);
 
-	// Single line, no whitespace between tags: stray text nodes render as
-	// tofu boxes (the font subset has no glyphs for tabs/newlines)
+	// Dark card matching the site theme (src/styles/theme.css). Single
+	// line, no whitespace between tags: stray text nodes render as tofu
+	// boxes (the font subset has no glyphs for tabs/newlines).
 	const html =
-		`<div style="display: flex; flex-direction: column; justify-content: space-between; width: ${WIDTH}px; height: ${HEIGHT}px; background: #ffffff; padding: 72px; font-family: 'Noto Sans JP';">` +
-		`<div style="display: flex; font-size: 58px; font-weight: 700; color: #18181b; line-height: 1.35; letter-spacing: -0.02em; overflow: hidden; max-height: 400px;">${escapeHtml(title)}</div>` +
+		`<div style="display: flex; flex-direction: column; justify-content: space-between; width: ${WIDTH}px; height: ${HEIGHT}px; background: #0c0c0c; padding: 72px; font-family: 'Noto Sans JP';">` +
+		`<div style="display: flex; font-size: 58px; font-weight: 700; color: #ececec; line-height: 1.35; letter-spacing: -0.02em; overflow: hidden; max-height: 400px;">${escapeHtml(title)}</div>` +
 		`<div style="display: flex; justify-content: space-between; align-items: center; font-size: 30px; font-weight: 700;">` +
-		`<div style="display: flex; color: #0066cc;">${escapeHtml(siteTitle)}</div>` +
+		`<div style="display: flex; color: #4d9fff;">${escapeHtml(siteTitle)}</div>` +
 		`<div style="display: flex; color: #8a8a93;">${escapeHtml(date)}</div>` +
 		`</div></div>`;
 

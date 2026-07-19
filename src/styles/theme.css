@@ -4,8 +4,8 @@
   Layer 1: a shadcn/ui-compatible design-token set. These are the same
   variable names shadcn components consume (--background, --primary,
   --ring, --radius, ...), so shadcn/Tailwind components can be dropped in
-  later without a second theming system. Colors use light-dark(); the
-  theme switcher pins color-scheme via :root.light / :root.dark.
+  later without a second theming system. DARK ONLY by design — no theme
+  switcher; color-scheme: dark keeps form controls/scrollbars native dark.
 
   Layer 2: the EmDash template tokens (tokens.css) remapped onto layer 1.
   Existing template markup keeps working, but every color now resolves
@@ -16,42 +16,44 @@
 */
 
 /* ---------------------------------------------------------------- */
-/* 1. shadcn/ui-compatible tokens                                    */
+/* 1. shadcn/ui-compatible tokens (dark)                             */
 /* ---------------------------------------------------------------- */
 :root {
-	--background: light-dark(#ffffff, #0c0c0c);
-	--foreground: light-dark(#18181b, #ececec);
+	color-scheme: dark;
 
-	--card: light-dark(#ffffff, #131313);
+	--background: #0c0c0c;
+	--foreground: #ececec;
+
+	--card: #131313;
 	--card-foreground: var(--foreground);
 
-	--popover: light-dark(#ffffff, #161616);
+	--popover: #161616;
 	--popover-foreground: var(--foreground);
 
-	--primary: light-dark(#0066cc, #4d9fff);
-	--primary-foreground: light-dark(#ffffff, #0c0c0c);
+	--primary: #4d9fff;
+	--primary-foreground: #0c0c0c;
 
-	--secondary: light-dark(#f4f4f5, #1b1b1b);
-	--secondary-foreground: light-dark(#27272a, #d4d4d8);
+	--secondary: #1b1b1b;
+	--secondary-foreground: #d4d4d8;
 
-	--muted: light-dark(#fafafa, #151515);
-	--muted-foreground: light-dark(#8a8a93, #71717a);
+	--muted: #151515;
+	--muted-foreground: #8a8a93;
 
-	--accent: light-dark(#f4f4f5, #202020);
+	--accent: #202020;
 	--accent-foreground: var(--foreground);
 
-	--destructive: light-dark(#dc2626, #f87171);
-	--destructive-foreground: light-dark(#ffffff, #0c0c0c);
+	--destructive: #f87171;
+	--destructive-foreground: #0c0c0c;
 
-	--border: light-dark(#e4e4e7, #27272a);
+	--border: #27272a;
 	--input: var(--border);
 	--ring: var(--primary);
 
-	--chart-1: light-dark(#0066cc, #4d9fff);
-	--chart-2: light-dark(#059669, #34d399);
-	--chart-3: light-dark(#d97706, #fbbf24);
-	--chart-4: light-dark(#7c3aed, #a78bfa);
-	--chart-5: light-dark(#db2777, #f472b6);
+	--chart-1: #4d9fff;
+	--chart-2: #34d399;
+	--chart-3: #fbbf24;
+	--chart-4: #a78bfa;
+	--chart-5: #f472b6;
 
 	/* shadcn radius scale (--radius is the base; sm/md/lg derive) */
 	--radius: 0.25rem;
@@ -59,27 +61,6 @@
 	--radius-md: var(--radius);
 	--radius-lg: calc(var(--radius) + 4px);
 	--radius-xl: calc(var(--radius) + 8px);
-}
-
-/* Light-mode fallback for browsers without light-dark() support.
-   Must mirror the light values above. */
-@supports not (color: light-dark(#000, #fff)) {
-	:root {
-		--background: #ffffff;
-		--foreground: #18181b;
-		--card: #ffffff;
-		--popover: #ffffff;
-		--primary: #0066cc;
-		--primary-foreground: #ffffff;
-		--secondary: #f4f4f5;
-		--secondary-foreground: #27272a;
-		--muted: #fafafa;
-		--muted-foreground: #8a8a93;
-		--accent: #f4f4f5;
-		--destructive: #dc2626;
-		--destructive-foreground: #ffffff;
-		--border: #e4e4e7;
-	}
 }
 
 /* ---------------------------------------------------------------- */
