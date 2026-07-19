@@ -21,8 +21,7 @@ export function translatorPlugin(): PluginDescriptor {
 		format: "standard",
 		entrypoint: "emdash-plugin-translator/sandbox",
 		options: {},
-		capabilities: ["content:read", "content:write", "network:request"],
-		allowedHosts: ["gateway.ai.cloudflare.com"],
+		capabilities: ["content:read", "content:write"],
 		adminPages: [{ path: "/translator", label: "Translator", icon: "globe" }],
 	};
 }

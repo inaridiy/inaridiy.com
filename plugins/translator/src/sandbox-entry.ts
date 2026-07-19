@@ -5,9 +5,7 @@ import {
 	hashSource,
 	parseTranslatedArray,
 	preparePortableText,
-	translateBatch,
 	SYSTEM_PROMPT,
-	type GatewayConfig,
 } from "./translate";
 
 /**
@@ -17,15 +15,10 @@ import {
  * fields into English shadow fields (`*_en`). The site renders the `_en`
  * fields on /en/*.
  *
- * Model routing — the model setting is a single `{provider}/{model}` string:
- *   - `workers-ai/...` (default): calls the Workers AI binding directly.
- *     No API keys. When a gateway ID is set, requests route through that
- *     AI Gateway (analytics/caching) via the binding's gateway option.
- *   - any other provider (`openai/...`, `anthropic/...`): calls the AI
- *     Gateway unified endpoint over HTTP; requires account ID + gateway ID
- *     and BYOK provider keys stored in the gateway.
- *
- * Works with ZERO configuration out of the box (Workers AI + no gateway).
+ * Workers AI only — the model is a plain Workers AI model id (e.g.
+ * `@cf/google/gemma-4-26b-a4b-it`) called through the AI binding. No API
+ * keys, no account IDs. Setting a Gateway ID routes the calls through
+ * that AI Gateway (analytics / caching); it is optional.
  *
  * TRUSTED-ONLY: reaches the AI binding via `import { env } from
  * "cloudflare:workers"`. Do not move to `sandboxed: []`.
@@ -53,7 +46,7 @@ const COLLECTION_FIELDS: Record<
 	},
 };
 
-const DEFAULT_MODEL = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const DEFAULT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 /** Segments per model call — keeps output within model token limits. */
 const CHUNK_SIZE = 40;
 
@@ -69,72 +62,53 @@ interface Settings {
 	enabled: boolean;
 	model: string;
 	gatewayId: string;
-	accountId: string;
-	apiToken: string;
 }
 
 async function readSettings(ctx: PluginContext): Promise<Settings> {
+	const storedModel = (await ctx.kv.get<string>("settings:model")) || DEFAULT_MODEL;
 	return {
 		enabled: (await ctx.kv.get<boolean>("settings:enabled")) ?? true,
-		model: (await ctx.kv.get<string>("settings:model")) || DEFAULT_MODEL,
+		// Accept the legacy "workers-ai/@cf/..." format from older versions
+		model: storedModel.replace(/^workers-ai\//, ""),
 		gatewayId: (await ctx.kv.get<string>("settings:gatewayId")) ?? "",
-		accountId: (await ctx.kv.get<string>("settings:accountId")) ?? "",
-		apiToken: (await ctx.kv.get<string>("settings:apiToken")) ?? "",
 	};
 }
 
-/** Translate one chunk of strings with whichever route the model needs. */
+/** Translate one chunk of strings via the Workers AI binding. */
 async function translateChunk(
 	texts: string[],
 	settings: Settings,
 	ctx: PluginContext,
 ): Promise<string[]> {
-	if (settings.model.startsWith("workers-ai/")) {
-		const ai = (env as { AI?: AiBindingLike }).AI;
-		if (!ai) throw new Error("Workers AI binding (AI) is not available");
-		const result = (await ai.run(
-			settings.model.slice("workers-ai/".length),
-			{
-				messages: [
-					{ role: "system", content: SYSTEM_PROMPT },
-					{ role: "user", content: JSON.stringify(texts) },
-				],
-				temperature: 0.2,
-				max_tokens: 4096,
-			},
-			settings.gatewayId ? { gateway: { id: settings.gatewayId } } : undefined,
-		)) as {
-			response?: unknown;
-			choices?: Array<{ message?: { content?: unknown } }>;
-		};
-		// Depending on the model, Workers AI returns either the legacy
-		// { response } shape or an OpenAI-style chat completions envelope.
-		const text =
-			typeof result?.response === "string"
-				? result.response
-				: result?.choices?.[0]?.message?.content;
-		if (typeof text !== "string" || text.trim() === "") {
-			throw new Error(
-				`Workers AI reply has no response text: ${JSON.stringify(result).slice(0, 300)}`,
-			);
-		}
-		return parseTranslatedArray(text, texts.length);
-	}
-
-	// External provider — AI Gateway unified endpoint (BYOK keys live in the gateway)
-	if (!settings.accountId || !settings.gatewayId) {
+	const ai = (env as { AI?: AiBindingLike }).AI;
+	if (!ai) throw new Error("Workers AI binding (AI) is not available");
+	const result = (await ai.run(
+		settings.model,
+		{
+			messages: [
+				{ role: "system", content: SYSTEM_PROMPT },
+				{ role: "user", content: JSON.stringify(texts) },
+			],
+			temperature: 0.2,
+			max_tokens: 4096,
+		},
+		settings.gatewayId ? { gateway: { id: settings.gatewayId } } : undefined,
+	)) as {
+		response?: unknown;
+		choices?: Array<{ message?: { content?: unknown } }>;
+	};
+	// Depending on the model, Workers AI returns either the legacy
+	// { response } shape or an OpenAI-style chat completions envelope.
+	const text =
+		typeof result?.response === "string"
+			? result.response
+			: result?.choices?.[0]?.message?.content;
+	if (typeof text !== "string" || text.trim() === "") {
 		throw new Error(
-			`model "${settings.model}" needs the AI Gateway route: set account ID and gateway ID`,
+			`Workers AI reply has no response text: ${JSON.stringify(result).slice(0, 300)}`,
 		);
 	}
-	if (!ctx.http) throw new Error("network capability unavailable");
-	const gateway: GatewayConfig = {
-		accountId: settings.accountId,
-		gatewayId: settings.gatewayId,
-		model: settings.model,
-		apiToken: settings.apiToken || undefined,
-	};
-	return translateBatch(texts, gateway, (url, init) => ctx.http!.fetch(url, init));
+	return parseTranslatedArray(text, texts.length);
 }
 
 interface ContentEvent {
@@ -253,7 +227,7 @@ async function settingsBlocks(ctx: PluginContext) {
 			{ type: "header", text: "Auto Translator" },
 			{
 				type: "context",
-				text: "Translates published Japanese content into the *_en fields. Default model runs on Workers AI — no keys needed; set a gateway ID to route it through an AI Gateway. External models (openai/gpt-4o-mini, anthropic/claude-sonnet-4-5, ...) additionally need the account ID and BYOK keys stored in the gateway.",
+				text: "Translates published Japanese content into the *_en fields using Workers AI — no API keys. Model is a Workers AI model id (see `wrangler ai models`). Gateway ID is optional and only adds AI Gateway analytics/caching.",
 			},
 			{
 				type: "form",
@@ -268,25 +242,14 @@ async function settingsBlocks(ctx: PluginContext) {
 					{
 						type: "text_input",
 						action_id: "model",
-						label: "Model ({provider}/{model})",
+						label: "Workers AI model",
 						initial_value: settings.model,
 					},
 					{
 						type: "text_input",
 						action_id: "gatewayId",
-						label: "AI Gateway ID (optional for workers-ai)",
+						label: "AI Gateway ID (optional)",
 						initial_value: settings.gatewayId,
-					},
-					{
-						type: "text_input",
-						action_id: "accountId",
-						label: "Cloudflare account ID (external providers only)",
-						initial_value: settings.accountId,
-					},
-					{
-						type: "secret_input",
-						action_id: "apiToken",
-						label: "Gateway token (cf-aig-authorization, optional)",
 					},
 				],
 				submit: { label: "Save", action_id: "save_settings" },
@@ -351,12 +314,16 @@ export default {
 				if (interaction.type === "form_submit" && interaction.action_id === "save_settings") {
 					const values = interaction.values ?? {};
 					await ctx.kv.set("settings:enabled", Boolean(values.enabled));
-					await ctx.kv.set("settings:model", String(values.model ?? "").trim() || DEFAULT_MODEL);
+					await ctx.kv.set(
+						"settings:model",
+						String(values.model ?? "")
+							.trim()
+							.replace(/^workers-ai\//, "") || DEFAULT_MODEL,
+					);
 					await ctx.kv.set("settings:gatewayId", String(values.gatewayId ?? "").trim());
-					await ctx.kv.set("settings:accountId", String(values.accountId ?? "").trim());
-					const token = String(values.apiToken ?? "").trim();
-					// Empty secret input means "keep the stored token"
-					if (token !== "") await ctx.kv.set("settings:apiToken", token);
+					// Legacy settings from the removed HTTP gateway path
+					await ctx.kv.delete("settings:accountId");
+					await ctx.kv.delete("settings:apiToken");
 					return {
 						...(await settingsBlocks(ctx)),
 						toast: { message: "Settings saved", type: "success" },

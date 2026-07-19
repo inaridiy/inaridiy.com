@@ -1,20 +1,8 @@
 /**
- * Pure translation helpers: Portable Text traversal, source hashing, and the
- * AI Gateway chat-completions call. No EmDash imports so this stays testable
- * and sandbox-safe (Web APIs only).
+ * Pure translation helpers: Portable Text traversal, source hashing, and
+ * model-reply parsing. No EmDash imports so this stays testable and
+ * sandbox-safe (Web APIs only).
  */
-
-export interface GatewayConfig {
-	accountId: string;
-	gatewayId: string;
-	/** `{provider}/{model}` for the AI Gateway unified endpoint, e.g.
-	 * "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast" or "openai/gpt-4o-mini". */
-	model: string;
-	/** cf-aig-authorization token for authenticated gateways (optional). */
-	apiToken?: string;
-}
-
-type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 interface PortableTextSpanLike {
 	_type?: string;
@@ -111,50 +99,4 @@ export function parseTranslatedArray(raw: string, expectedLength: number): strin
 		);
 	}
 	return parsed.map((item) => String(item ?? ""));
-}
-
-/**
- * Translate a batch of Japanese strings via the AI Gateway unified
- * (OpenAI-compatible) endpoint. Model switching = changing `config.model`;
- * provider keys live in the gateway's BYOK store, not here.
- */
-export async function translateBatch(
-	texts: string[],
-	config: GatewayConfig,
-	fetchFn: FetchLike,
-): Promise<string[]> {
-	if (texts.length === 0) return [];
-	const url = `https://gateway.ai.cloudflare.com/v1/${config.accountId}/${config.gatewayId}/compat/chat/completions`;
-	const headers: Record<string, string> = {
-		"content-type": "application/json",
-	};
-	if (config.apiToken) {
-		headers["cf-aig-authorization"] = `Bearer ${config.apiToken}`;
-	}
-	const response = await fetchFn(url, {
-		method: "POST",
-		headers,
-		body: JSON.stringify({
-			model: config.model,
-			temperature: 0.2,
-			messages: [
-				{ role: "system", content: SYSTEM_PROMPT },
-				{ role: "user", content: JSON.stringify(texts) },
-			],
-		}),
-	});
-	if (!response.ok) {
-		const body = await response.text().catch(() => "");
-		throw new Error(
-			`AI Gateway request failed: ${response.status} ${body.slice(0, 300)}`,
-		);
-	}
-	const data = (await response.json()) as {
-		choices?: Array<{ message?: { content?: string } }>;
-	};
-	const content = data.choices?.[0]?.message?.content;
-	if (typeof content !== "string" || content.trim() === "") {
-		throw new Error("AI Gateway reply has no message content");
-	}
-	return parseTranslatedArray(content, texts.length);
 }

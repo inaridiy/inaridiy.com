@@ -95,10 +95,11 @@ pnpm deploy           # = astro build && wrangler deploy
 
 ## 自動英訳
 
-**ゼロ設定で動く。** 既定モデルは `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast` で、Workers AI バインディングを直接呼ぶためキー不要。管理画面 **Admin > Translator** の Model 欄 (`{provider}/{model}` 形式) を書き換えるだけでモデルを切り替えられる。
+**Workers AI 専用・ゼロ設定。** 既定モデルは `@cf/google/gemma-4-26b-a4b-it`。AI バインディングを直接呼ぶためキーもアカウント ID も不要。設定は **Admin > Translator** の 3 項目だけ:
 
-- `workers-ai/...` — バインディング直呼び。Gateway ID を設定するとその AI Gateway 経由でルーティング (分析/キャッシュ)
-- `openai/gpt-4o-mini`, `google-ai-studio/gemini-*`, `anthropic/...` など外部プロバイダ — AI Gateway の unified endpoint (`/compat`) を使用。**account ID + Gateway ID の設定と、プロバイダの API キーを Gateway に BYOK 保存**が必要 (キー未保存だと 400 "Missing or invalid Authorization header" になる)
+- **Enabled** — オン/オフ
+- **Workers AI model** — Workers AI のモデル id (`wrangler ai models` で一覧)。書き換えるだけで切替
+- **AI Gateway ID** (任意) — 設定するとその AI Gateway 経由でルーティング (分析/キャッシュ)。無くても動く
 
 仕組み: 記事の公開/更新時に `content:afterSave` / `content:afterPublish` フックが発火し、本文を翻訳して `*_en` フィールドへ書き戻す。日本語ソースのハッシュを KV に保存し、本文が変わっていなければ再翻訳しない (Translator 管理画面からキャッシュのリセット可)。コードブロックとインラインコードは翻訳対象外。長文は 40 セグメントずつ分割して翻訳する。
 
@@ -147,7 +148,7 @@ EmDash のメール(認証メール、コメント通知、プラグインから
 | GitHub リポジトリシークレット `EMDASH_URL` | サイト URL | Actions の git→CMS push 先 |
 | GitHub リポジトリシークレット `EMDASH_REFRESH_TOKEN` | EmDash リフレッシュトークン | デプロイ後に `npx emdash login --url <サイト>` → `~/.config/emdash/auth.json` の `refreshToken` を登録。90 日有効、期限切れ時は再ログイン |
 | 管理画面 Admin → GitHub Export | GitHub fine-grained PAT | CMS→git コミット用。github.com/settings/personal-access-tokens で **このリポジトリのみ・Contents: Read and write** に絞って発行 |
-| 管理画面 Admin → Translator | AI Gateway トークン (任意) | Authenticated Gateway の場合のみ。プロバイダキーは AI Gateway 側に BYOK 保存 |
+| 管理画面 Admin → Translator | (トークン不要) | Workers AI バインディング直呼びのためキー無し。Gateway ID は任意 |
 | Wrangler シークレット `EMDASH_ENCRYPTION_KEY` | 暗号化キー | 管理画面で保存するシークレット (PAT 等) の暗号化に使用 |
 
 すべての PAT / トークンは最小権限で: GitHub PAT は単一リポジトリ + Contents のみ、EmDash トークンは自サイトのみ、AI Gateway キーは Gateway 側に置いてコードや git には一切入れない。
