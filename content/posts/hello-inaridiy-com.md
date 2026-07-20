@@ -1,7 +1,8 @@
 ---
+cms_id: "01KXSJY6B3QCB7A0ZYXNG04KZ6"
 slug: "hello-inaridiy-com"
 status: "published"
-title: "inaridiy.com を作り直した"
+title: "inaridiy.com を作り直した！！！"
 excerpt: "EmDash + Cloudflare Workers でブログを作り直した。D1・AI Search・AI Gateway 経由の自動英訳つき。"
 ---
 
@@ -15,4 +16,4 @@ CMS は EmDash。Astro ベースで、Cloudflare Workers にそのままデプ�
 
 # asdf
 
-見た目は HackerNews 風に、テキスト主体の簡素なリストにした。装飾より本文。
+見た目は HackerNews 風に、テキスト主体の簡素なリストにした。装飾より本文。！！！
