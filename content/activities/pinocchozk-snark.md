@@ -1,7 +1,7 @@
 ---
 cms_id: "01KXYYFAVD836BTZGH34SCX86Z"
 slug: "pinocchozk-snark"
-status: "draft"
+status: "published"
 title: "Pinoccho(ZK-SNARK)を解説するスライドを作成"
 date: "2025-12-24T14:02:00.000Z"
 kind: "article"
