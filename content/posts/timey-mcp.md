@@ -1,7 +1,7 @@
 ---
 cms_id: "01KY6SBXXR23YA953WBHKMQJZ7"
 slug: "timey-mcp"
-status: "draft"
+status: "published"
 title: "LLMが人間を雇用する、タイミーMCP"
 ---
 
