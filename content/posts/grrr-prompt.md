@@ -1,7 +1,7 @@
 ---
 cms_id: "01KYH8R3BEY5C9ZV4VFZC8RE2K"
 slug: "grrr-prompt"
-status: "draft"
+status: "published"
 title: "発狂式思考プロンプトの時代が来た。"
 ---
 
