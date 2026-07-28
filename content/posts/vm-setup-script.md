@@ -1,7 +1,7 @@
 ---
 cms_id: "01KYM60GTYC95QAZDQ3FT595XP"
 slug: "vm-setup-script"
-status: "draft"
+status: "published"
 title: "VM用初期セットアップシェルスクリプト"
 ---
 
