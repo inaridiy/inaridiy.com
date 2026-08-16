@@ -1,7 +1,7 @@
 ---
 cms_id: "01M05AWJQ708XXFWBG08BJBSJK"
 slug: "hello-cycling"
-status: "draft"
+status: "published"
 title: "Hello Cyclingで自転車返し忘れてたら盗まれた話。"
 ---
 
