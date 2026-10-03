@@ -35,9 +35,6 @@ importers:
       emdash-plugin-newsletter:
         specifier: workspace:*
         version: link:plugins/newsletter
-      emdash-plugin-search-sync:
-        specifier: workspace:*
-        version: link:plugins/search-sync
       emdash-plugin-translator:
         specifier: workspace:*
         version: link:plugins/translator
@@ -83,15 +80,6 @@ importers:
 
   plugins/newsletter:
     dependencies:
-      emdash:
-        specifier: ^1.1.0
-        version: 1.1.0(@astrojs/react@7.0.0(@types/node@26.1.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(esbuild@0.28.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(yaml@2.9.0))(@atcute/cbor@2.3.8(@atcute/cid@2.5.0))(@atcute/cid@2.5.0)(@atcute/identity@2.0.2(@atcute/lexicons@2.0.3)(typescript@6.0.3))(@date-fns/tz@1.5.0)(@floating-ui/dom@1.8.0)(@tiptap/extensions@3.28.0(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(astro@7.3.5(@types/node@26.1.1)(yaml@2.9.0))(date-fns@4.4.0)(echarts@6.1.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
-
-  plugins/search-sync:
-    dependencies:
-      '@inaridiy/content-contract':
-        specifier: workspace:*
-        version: link:../../packages/content-contract
       emdash:
         specifier: ^1.1.0
         version: 1.1.0(@astrojs/react@7.0.0(@types/node@26.1.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(esbuild@0.28.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(yaml@2.9.0))(@atcute/cbor@2.3.8(@atcute/cid@2.5.0))(@atcute/cid@2.5.0)(@atcute/identity@2.0.2(@atcute/lexicons@2.0.3)(typescript@6.0.3))(@date-fns/tz@1.5.0)(@floating-ui/dom@1.8.0)(@tiptap/extensions@3.28.0(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(astro@7.3.5(@types/node@26.1.1)(yaml@2.9.0))(date-fns@4.4.0)(echarts@6.1.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)

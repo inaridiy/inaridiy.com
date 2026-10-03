@@ -1,8 +1,9 @@
 ---
 /**
  * HN-style dense post list: numbered rows, title link, muted meta line.
- * Works for both JA (default fields) and EN (_en fields with JA fallback).
+ * Entries are already in the page's locale (EmDash i18n).
  */
+import { localizedPath } from "@inaridiy/content-contract";
 import { getReadingTime } from "../utils/reading-time";
 import type { PortableTextBlock } from "emdash";
 
@@ -10,9 +11,7 @@ interface PostEntryLike {
 	id: string;
 	data: {
 		title: string;
-		title_en?: string | null;
 		content?: PortableTextBlock[];
-		content_en?: PortableTextBlock[] | null;
 		publishedAt?: Date | null;
 	};
 }
@@ -26,18 +25,13 @@ interface Props {
 
 const { posts, lang = "ja", start = 1 } = Astro.props;
 
-const rows = posts.map((post, i) => {
-	const title = lang === "en" ? post.data.title_en || post.data.title : post.data.title;
-	const content =
-		lang === "en" ? post.data.content_en || post.data.content : post.data.content;
-	return {
-		n: start + i,
-		href: lang === "en" ? `/en/posts/${post.id}` : `/posts/${post.id}`,
-		title,
-		date: post.data.publishedAt?.toISOString().slice(0, 10) ?? null,
-		minutes: getReadingTime(content ?? undefined),
-	};
-});
+const rows = posts.map((post, i) => ({
+	n: start + i,
+	href: localizedPath("posts", post.id, lang),
+	title: post.data.title,
+	date: post.data.publishedAt?.toISOString().slice(0, 10) ?? null,
+	minutes: getReadingTime(post.data.content ?? undefined),
+}));
 ---
 
 <ol class="post-list" start={start}>

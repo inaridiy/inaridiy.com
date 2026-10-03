@@ -4,9 +4,10 @@ import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 /**
  * Cache-purge plugin (runtime). See ./index.ts for the overview.
  *
- * Hook ordering: priority 300 runs AFTER the auto-translator (100) and
- * search-sync (200). The translator's `*_en` write-back fires its own
- * afterSave event, so EN pages get purged again once translations land.
+ * Hook ordering: priority 90 runs before EmDash's aiSearch() hooks (default
+ * 100, errorPolicy "abort"), so a slow AI Search call cannot skip the purge.
+ * The translator writes English entries from its own workflow callback,
+ * which fires these hooks again for the English entry.
  * afterSave also covers draft saves — a wasted purge for public pages, but
  * it keeps preview URLs (same path, `?preview=` query) from serving stale
  * drafts out of the edge cache.
@@ -34,7 +35,7 @@ async function purgeTags(tags: string[], ctx: PluginContext): Promise<void> {
 
 function contentHook() {
 	return {
-		priority: 300,
+		priority: 90,
 		timeout: 10000,
 		errorPolicy: "continue" as const,
 		handler: async (event: ContentEvent, ctx: PluginContext) => {
@@ -51,7 +52,7 @@ export default {
 		"content:afterPublish": contentHook(),
 		"content:afterUnpublish": contentHook(),
 		"content:afterDelete": {
-			priority: 300,
+			priority: 90,
 			timeout: 10000,
 			errorPolicy: "continue" as const,
 			handler: async (event: { id: string; collection: string }, ctx: PluginContext) => {

@@ -8,6 +8,7 @@ export const GET: APIRoute = async ({ cache, site, url }) => {
 	const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings());
 
 	const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
+		locale: "ja",
 		status: "published",
 		orderBy: { published_at: "desc" },
 		limit: 20,

@@ -1,12 +1,15 @@
 ---
-import { getEmDashEntry } from "emdash";
 import ContentPage from "../../components/ContentPage.astro";
 import Base from "../../layouts/Base.astro";
+import { getLocalizedEntryBySourceSlug, staticAlternates } from "../../utils/i18n";
 
-const { entry: page, cacheHint } = await getEmDashEntry("pages", "about");
-Astro.cache.set(cacheHint);
-const title = page?.data.title_en || page?.data.title || "About";
-const content = page?.data.content_en || page?.data.content;
+const { entry: page, isTranslated, cacheHints } = await getLocalizedEntryBySourceSlug(
+	"pages",
+	"about",
+	"en",
+);
+for (const cacheHint of cacheHints) Astro.cache.set(cacheHint);
+const title = page?.data.title || "About";
 ---
 
 <Base
@@ -14,21 +17,12 @@ const content = page?.data.content_en || page?.data.content;
 	description="About inaridiy"
 	canonical={`${Astro.url.origin}/en/about`}
 	lang="en"
-	alternates={[
-		{ hreflang: "ja", path: "/about" },
-		{ hreflang: "en", path: "/en/about" },
-		{ hreflang: "x-default", path: "/about" },
-	]}
-	content={page ? { collection: "pages", id: page.data.id, slug: "about" } : undefined}
+	alternates={staticAlternates("/about")}
+	content={page ? { collection: "pages", id: page.data.id, slug: page.id } : undefined}
 >
 	{
 		page ? (
-			<ContentPage
-				{title}
-				{content}
-				lang="en"
-				isTranslated={Boolean(page.data.content_en)}
-			/>
+			<ContentPage {title} content={page.data.content} lang="en" {isTranslated} />
 		) : (
 			<p class="empty">No about page yet.</p>
 		)

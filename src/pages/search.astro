@@ -2,32 +2,27 @@
 export const prerender = false;
 
 import { env } from "cloudflare:workers";
+import { localizedPath, SOURCE_LOCALE, TARGET_LOCALE } from "@inaridiy/content-contract";
 import { search } from "emdash";
 import Base from "../layouts/Base.astro";
+import { aiAnswer as askAiSearch, keywordSearch, type SearchResultRow } from "../utils/search";
 
 const MAX_QUERY_CHARS = 300;
 const rawQuery = Astro.url.searchParams.get("q")?.trim() || "";
 const queryTooLong = rawQuery.length > MAX_QUERY_CHARS;
 const query = queryTooLong ? rawQuery.slice(0, MAX_QUERY_CHARS) : rawQuery;
 const mode = Astro.url.searchParams.get("mode") === "ai" ? "ai" : "keyword";
+// Content locale to search. The /en header form submits lang=en.
+const locale = Astro.url.searchParams.get("lang") === TARGET_LOCALE ? TARGET_LOCALE : SOURCE_LOCALE;
 
 // Never edge-cache search: responses are per-visitor (rate-limit cookie) and
 // without an explicit header the Workers Cache would apply heuristic
 // freshness (~2h) to cookie-less repeat visits.
 Astro.response.headers.set("Cache-Control", "private, no-store");
 
-// AI Search binding. Hybrid (vector + keyword/trigram) search handles
-// Japanese properly — EmDash's SQLite FTS can't tokenize CJK, so it is
-// only the fallback when the binding is absent (plain local dev).
-const searchBinding = (env as Partial<Env>).SEARCH;
-
-interface ResultRow {
-	url: string;
-	title: string;
-	snippet?: string;
+interface ResultRow extends SearchResultRow {
 	/** Pre-sanitized HTML snippet (EmDash FTS <mark> highlighting) */
 	snippetHtml?: string;
-	lang?: string;
 }
 
 let aiAnswer: string | null = null;
@@ -36,6 +31,10 @@ let searchIssue: "query_too_long" | "rate_limited" | "unavailable" | null = quer
 	? "query_too_long"
 	: null;
 let usedFts = false;
+// AI Search (hybrid vector + keyword) handles Japanese properly — EmDash's
+// SQLite FTS can't tokenize CJK, so it is only the fallback when the binding
+// is absent (plain local dev) or AI Search fails.
+const aiSearchAvailable = Boolean((env as Partial<Env>).AI_SEARCH);
 
 function visitorRateLimitKey(): string {
 	const cookieName = "inaridiy_search_visitor";
@@ -54,27 +53,7 @@ function visitorRateLimitKey(): string {
 	return `ai-search:${visitor}`;
 }
 
-function chunksToRows(
-	chunks: Array<{ score: number; text: string; item?: { metadata?: Record<string, unknown> } }>,
-): ResultRow[] {
-	const seen = new Set<string>();
-	const rows: ResultRow[] = [];
-	for (const chunk of chunks) {
-		const meta = chunk.item?.metadata ?? {};
-		const url = typeof meta.url === "string" ? meta.url : null;
-		if (!url || seen.has(url)) continue;
-		seen.add(url);
-		rows.push({
-			url,
-			title: typeof meta.title === "string" ? meta.title : url,
-			snippet: chunk.text.replace(/^#[^\n]*\n+|^URL:[^\n]*\n+/gm, "").slice(0, 160),
-			lang: typeof meta.lang === "string" ? meta.lang : undefined,
-		});
-	}
-	return rows;
-}
-
-if (query && !queryTooLong && searchBinding) {
+if (query && !queryTooLong && aiSearchAvailable) {
 	const limiter = (env as Partial<Env>).AI_RATE_LIMITER;
 	if (limiter) {
 		try {
@@ -92,26 +71,11 @@ if (query && !queryTooLong && searchBinding) {
 	if (!searchIssue) {
 		try {
 			if (mode === "ai") {
-				const [chat, retrieval] = await Promise.all([
-					searchBinding.chatCompletions({
-						messages: [{ role: "user", content: query }],
-					}),
-					searchBinding.search({
-						query,
-						ai_search_options: { retrieval: { max_num_results: 8 } },
-					}),
-				]);
-				aiAnswer = chat.choices?.[0]?.message?.content ?? null;
-				results = chunksToRows([...(chat.chunks ?? []), ...(retrieval.chunks ?? [])]).slice(
-					0,
-					8,
-				);
+				const answered = await askAiSearch(query, locale);
+				aiAnswer = answered.answer;
+				results = answered.sources;
 			} else {
-				const retrieval = await searchBinding.search({
-					query,
-					ai_search_options: { retrieval: { max_num_results: 12 } },
-				});
-				results = chunksToRows(retrieval.chunks ?? []);
+				results = await keywordSearch(query, locale);
 			}
 		} catch (error) {
 			searchIssue = "unavailable";
@@ -124,27 +88,25 @@ if (query && !queryTooLong && searchBinding) {
 	}
 }
 
-// Fallback: EmDash full-text search (local dev / hybrid failure)
+// Fallback: EmDash full-text search (local dev / AI Search failure)
 if (
 	query &&
 	!queryTooLong &&
-	(!searchBinding || searchIssue === "rate_limited" || searchIssue === "unavailable")
+	(!aiSearchAvailable || searchIssue === "rate_limited" || searchIssue === "unavailable")
 ) {
 	try {
 		usedFts = true;
 		const { items } = await search(query, {
 			collections: ["posts", "pages", "activities"],
+			locale,
 			limit: 30,
 		});
 		results = items.map((item) => ({
-			url:
-				item.collection === "pages"
-					? (item.slug ?? item.id) === "about"
-						? "/about"
-						: `/pages/${item.slug ?? item.id}`
-					: item.collection === "activities"
-						? "/activities"
-						: `/posts/${item.slug ?? item.id}`,
+			url: localizedPath(
+				item.collection as "posts" | "pages" | "activities",
+				item.slug ?? item.id,
+				locale,
+			),
 			title: item.title ?? "Untitled",
 			snippetHtml: item.snippet ?? undefined,
 		}));
@@ -163,6 +125,7 @@ if (
 	<h1 class="page-title">Search</h1>
 
 	<form method="get" action="/search" class="search-form">
+		{locale !== SOURCE_LOCALE && <input type="hidden" name="lang" value={locale} />}
 		<input
 			type="search"
 			name="q"
@@ -228,7 +191,7 @@ if (
 				<li class="search-result">
 					<a href={result.url} class="result-title">
 						{result.title}
-						{result.lang === "en" && <span class="lang-badge">EN</span>}
+						{locale === TARGET_LOCALE && <span class="lang-badge">EN</span>}
 					</a>
 					{result.snippetHtml ? (
 						<p class="result-snippet" set:html={result.snippetHtml} />

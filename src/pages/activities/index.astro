@@ -2,8 +2,9 @@
 import ActivityList from "../../components/ActivityList.astro";
 import Base from "../../layouts/Base.astro";
 import { getAllPublishedActivities } from "../../utils/activities";
+import { staticAlternates } from "../../utils/i18n";
 
-const { entries, cacheHints } = await getAllPublishedActivities();
+const { entries, cacheHints } = await getAllPublishedActivities("ja");
 for (const cacheHint of cacheHints) Astro.cache.set(cacheHint);
 ---
 
@@ -11,11 +12,7 @@ for (const cacheHint of cacheHints) Astro.cache.set(cacheHint);
 	title="Activities"
 	description="活動歴"
 	canonical={`${Astro.url.origin}/activities`}
-	alternates={[
-		{ hreflang: "ja", path: "/activities" },
-		{ hreflang: "en", path: "/en/activities" },
-		{ hreflang: "x-default", path: "/activities" },
-	]}
+	alternates={staticAlternates("/activities")}
 >
 	<h1 class="page-title">Activities</h1>
 	<ActivityList activities={entries} />

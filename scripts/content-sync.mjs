@@ -18,7 +18,8 @@
  *   - stored credentials from `emdash login` (~/.config/emdash/auth.json)
  *   - dev bypass when EMDASH_URL is localhost (default)
  *
- * The translator plugin owns the *_en fields — they are never synced here.
+ * Only Japanese source entries are synced. Their English translations (EmDash
+ * i18n entries in the same translation group) belong to the translator plugin.
  * Taxonomies (category/tag) are managed in the admin, not in frontmatter.
  */
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
@@ -62,11 +63,18 @@ function createClient() {
 	});
 }
 
+/**
+ * Only the Japanese source entries are mirrored. English entries live in the
+ * same translation groups and are owned by the translator plugin — listing
+ * them here would collide on slugs and `--prune` would delete them.
+ */
+const SOURCE_LOCALE = "ja";
+
 async function fetchRemote(client, collection) {
 	const items = [];
 	let cursor;
 	do {
-		const page = await client.list(collection, { limit: 100, cursor });
+		const page = await client.list(collection, { limit: 100, cursor, locale: SOURCE_LOCALE });
 		items.push(...page.items);
 		cursor = page.nextCursor ?? undefined;
 	} while (cursor);
@@ -166,7 +174,11 @@ async function push({ prune = false } = {}) {
 			if (!existing) {
 				// Status is a lifecycle transition, not an update field: create as
 				// draft, then publish (same flow as the official CLI).
-				const created = await client.create(collection, { slug: entry.slug, data });
+				const created = await client.create(collection, {
+					slug: entry.slug,
+					data,
+					locale: SOURCE_LOCALE,
+				});
 				if (entry.status === "published") await client.publish(collection, created.id);
 				await writeFile(
 					join(format.dir, file),

@@ -1,18 +1,23 @@
 ---
+import { SOURCE_LOCALE } from "@inaridiy/content-contract";
 import { decodeSlug, getEmDashEntry, getSeoMeta, getSiteSettings } from "emdash";
 import LikeButton from "../../components/LikeButton.astro";
 import PostArticle from "../../components/PostArticle.astro";
 import Base from "../../layouts/Base.astro";
 import { descriptionFromContent } from "../../utils/description";
+import { alternatesFor, getPublishedTranslations } from "../../utils/i18n";
 import { getReadingTime } from "../../utils/reading-time";
 import { resolveBlogSiteIdentity } from "../../utils/site-identity";
 
 const slug = decodeSlug(Astro.params.slug);
 if (!slug) return Astro.redirect("/404");
 
-const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
+const { entry: post, cacheHint } = await getEmDashEntry("posts", slug, {
+	locale: SOURCE_LOCALE,
+});
 if (!post) return Astro.redirect("/404");
 Astro.cache.set(cacheHint);
+const translations = await getPublishedTranslations("posts", post.data.id);
 
 function getImageUrl(value: unknown): string | undefined {
 	if (!value || typeof value !== "object") return undefined;
@@ -53,20 +58,15 @@ const description = seo.description || descriptionFromContent(content, siteTagli
 	publishedTime={post.data.publishedAt?.toISOString() ?? null}
 	modifiedTime={post.data.updatedAt.toISOString()}
 	markdownUrl={`/posts/${slug}.md`}
-	alternates={[
-		{ hreflang: "ja", path: `/posts/${slug}` },
-		{ hreflang: "en", path: `/en/posts/${slug}` },
-		{ hreflang: "x-default", path: `/posts/${slug}` },
-	]}
+	alternates={alternatesFor(translations)}
 	content={{ collection: "posts", id: post.data.id, slug }}
 >
 	<PostArticle
-		{slug}
 		title={post.data.title}
 		{content}
 		publishDate={post.data.publishedAt?.toISOString().slice(0, 10) ?? null}
 		readingTime={getReadingTime(content)}
-		hasEnglish={Boolean(post.data.content_en || post.data.title_en)}
+		otherLanguageHref={translations.en?.path ?? null}
 		categories={post.data.terms?.category ?? []}
 		tags={post.data.terms?.tag ?? []}
 		titleEdit={post.edit.title}

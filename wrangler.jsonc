@@ -51,13 +51,13 @@
 	"ai": {
 		"binding": "AI",
 	},
-	// AI Search (formerly AutoRAG), built-in storage. The search-sync plugin
-	// pushes content on publish; src/search-index.ts reconciles hourly;
-	// /search queries it (falls back to FTS if the binding is removed).
-	"ai_search": [
+	// AI Search namespace for EmDash's aiSearch() plugin (astro.config.mjs).
+	// The plugin creates its instance on first use, indexes content on
+	// publish, and /search queries it (FTS fallback when it is unavailable).
+	"ai_search_namespaces": [
 		{
-			"binding": "SEARCH",
-			"instance_name": "inaridiy-blog-search",
+			"binding": "AI_SEARCH",
+			"namespace": "default",
 		},
 	],
 	// Cloudflare Email Sending (inaridiy.com is onboarded). EmDash's
@@ -112,8 +112,8 @@
 			"binding": "LOADER",
 		},
 	],
-	// Drives scheduled publishing, plugin cron, maintenance, and the
-	// AI Search sync (see src/worker.ts)
+	// Drives scheduled publishing, plugin cron and maintenance
+	// (see src/worker.ts)
 	"triggers": {
 		"crons": [
 			"* * * * *"

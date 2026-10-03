@@ -11,28 +11,28 @@ interface Term {
 }
 
 interface Props {
-	slug: string;
 	title: string;
 	content?: PortableTextBlock[];
 	publishDate: string | null;
 	readingTime: number;
 	lang?: "ja" | "en";
+	/** False when an /en page fell back to the Japanese entry. */
 	isTranslated?: boolean;
-	hasEnglish?: boolean;
+	/** The same post in the other language, when published. */
+	otherLanguageHref?: string | null;
 	categories?: Term[];
 	tags?: Term[];
 	titleEdit?: Record<string, string>;
 }
 
 const {
-	slug,
 	title,
 	content,
 	publishDate,
 	readingTime,
 	lang = "ja",
 	isTranslated = false,
-	hasEnglish = false,
+	otherLanguageHref = null,
 	categories = [],
 	tags = [],
 	titleEdit = {},
@@ -55,22 +55,23 @@ const {
 				))
 			}
 			{
-				lang === "ja" && hasEnglish && (
+				otherLanguageHref && (
 					<>
 						{" · "}
-						<a href={`/en/posts/${slug}`}>English</a>
+						<a href={otherLanguageHref}>{lang === "ja" ? "English" : "日本語"}</a>
 					</>
 				)
 			}
-			{lang === "en" && <> · <a href={`/posts/${slug}`}>日本語</a></>}
 		</p>
 		{
 			lang === "en" && (
 				<p class="translation-note">
 					{isTranslated
-						? "Auto-translated from Japanese by an LLM via Cloudflare AI Gateway."
+						? "Auto-translated from Japanese by an LLM on Workers AI."
 						: "English translation is not available yet — showing the Japanese original below."}
-					{isTranslated && <a href={`/posts/${slug}`}> Read the original.</a>}
+					{isTranslated && otherLanguageHref && (
+						<a href={otherLanguageHref}> Read the original.</a>
+					)}
 				</p>
 			)
 		}

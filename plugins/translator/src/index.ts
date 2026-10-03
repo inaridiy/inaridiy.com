@@ -21,7 +21,7 @@ export function translatorPlugin(): PluginDescriptor {
 		format: "standard",
 		entrypoint: "emdash-plugin-translator/sandbox",
 		options: {},
-		capabilities: ["content:read", "content:write"],
+		capabilities: ["content:read", "content:write", "content:publish", "content:restore"],
 		adminPages: [{ path: "/translator", label: "Translator", icon: "globe" }],
 	};
 }

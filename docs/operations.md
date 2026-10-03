@@ -19,21 +19,12 @@ pnpm exec wrangler login
 
 pnpm exec wrangler d1 create inaridiy-com
 pnpm exec wrangler r2 bucket create inaridiy-media
-pnpm exec wrangler queues create inaridiy-email
 pnpm exec wrangler kv namespace create CACHE
 ```
 
-D1作成時に返るIDを `wrangler.jsonc` の `database_id` に、KV namespace作成時のIDを `kv_namespaces` の `id` に設定する。`inaridiy-email-dlq` はconsumer deploy時、存在しなければCloudflareが自動作成する。DLQ自体にconsumerは設定していないため、失敗messageは保持期間内に手動調査する。
+D1作成時に返るIDを `wrangler.jsonc` の `database_id` に、KV namespace作成時のIDを `kv_namespaces` の `id` に設定する。
 
-AI Searchを初めて作る場合:
-
-```bash
-pnpm exec wrangler ai-search create inaridiy-blog-search --type builtin \
-  --hybrid-search true \
-  --custom-metadata url:text --custom-metadata title:text \
-  --custom-metadata lang:text --custom-metadata collection:text \
-  --custom-metadata hash:text --custom-metadata entryId:text
-```
+AI Search instanceは作らない。EmDashの `aiSearch()` pluginが `default` namespaceに `inaridiy-content` (dev: `inaridiy-content-dev`) を必要なcustom metadata付きで自動作成する。
 
 ## Required secrets
 
@@ -44,28 +35,40 @@ pnpm exec wrangler secret put GITHUB_EXPORT_TOKEN
 
 値は対話入力する。`wrangler.jsonc` の `secrets.required` は名前とgenerated typeだけを固定し、値はsource controlへ入れない。ローカル値はignored `.env` に置く。
 
-`EMDASH_ENCRYPTION_KEY` はEmDashのAstro build設定にも必要なので、`pnpm deploy` を実行する環境の `.env` またはprocess environmentにも同じ値を用意する。remote Wrangler Secretだけを設定した状態でbuildしない。`GITHUB_EXPORT_TOKEN` はruntime Bindingだけで参照され、build成果物へ埋め込まれない。
+どちらもruntimeに `process.env` / Bindingから読まれ、build成果物へ埋め込まれない。buildは名前の存在だけを確認するので、CIはplaceholder値でbuildする。ローカルでbuildすると `.env` の値が `dist/server/.dev.vars` (dev用、deploy対象外) に書かれるため、`dist/` を共有しない。
 
-GitHub Actionsのcontent syncにはrepository secrets `EMDASH_URL` と `EMDASH_REFRESH_TOKEN` が必要。後者は次で取得したlogin credentialから登録する。
+### GitHub Actions secrets
+
+| Secret | 用途 |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | `ci.yml` のdeploy job。dashboardのAPI Tokensで「Edit Cloudflare Workers」templateから作り、対象をこのaccountと `inaridiy.com` zoneに絞る。deployが権限不足で失敗したら、errorに出たresource (D1、AI Search等) の権限を足す |
+| `CLOUDFLARE_ACCOUNT_ID` | 同上 |
+| `EMDASH_URL` / `EMDASH_REFRESH_TOKEN` | `content-sync.yml` |
 
 ```bash
-npx emdash login --url https://inaridiy.com
+gh secret set CLOUDFLARE_API_TOKEN          # 値は対話入力
+gh secret set CLOUDFLARE_ACCOUNT_ID --body <account id>
+npx emdash login --url https://inaridiy.com # EMDASH_REFRESH_TOKEN の取得元 (90日で失効)
 ```
 
+deploy jobは `production` environmentで動く。承認を挟みたい場合はGitHubのenvironment protection rulesで設定する。
+
 ## Validate and deploy
+
+通常は `main` へのpushで `.github/workflows/ci.yml` が `pnpm check` の後にdeployする (`content/**` だけの変更ではdeployしない)。手元からdeployする場合:
 
 ```bash
 pnpm check
 pnpm exec wrangler types --check
 pnpm check:deploy
-pnpm deploy
+pnpm run deploy   # `pnpm deploy` はpnpm組み込みcommandなので使わない
 ```
 
-deploy後:
+初回deploy後:
 
 1. `/_emdash/admin` で初期Adminを作成する。
-2. Settings → Emailで `email-sender` をproviderとして選択する。
-3. Admin → Email Senderでfrom addressが `noreply@inaridiy.com` であることを確認する。
+2. Settings → Emailで `cloudflare-email` がproviderになっていることを確認し、test emailを送る。差出人は `astro.config.mjs` の `cloudflareEmail({ from })`。
+3. Admin → Cloudflare AI Searchでposts / pages / activitiesを選び、Sync All Contentを実行する。
 4. Admin → GitHub Exportでrepository (`owner/name`) とbranchを設定する。PAT入力欄は存在しない。
 5. Admin → Translatorでmodelと任意のAI Gateway IDを確認する。
 
@@ -82,27 +85,30 @@ deploy後:
 
 ```bash
 pnpm exec wrangler tail
-pnpm exec wrangler queues list
+pnpm exec wrangler ai-search stats inaridiy-content
 ```
 
-構造化log event:
+構造化log event / prefix:
 
-- `search_index_reconciliation_failed` / `search_index_query_failed`
-- `email_queue_delivery_failed` / `email_queue_invalid_message`
-- `search_rate_limit_failed` / `ai_search_request_failed`
+- `search_rate_limit_failed` / `ai_search_request_failed` / `fts_search_failed`
+- `[ai-search]` (EmDash aiSearch plugin)、`auto-translator:`、`newsletter:`、`github-export:`
+- `EmDash <hook> hook error: Hook timeout after 5000ms` は多くが `aiSearch()` のhook。自作pluginのhookはそれより先に走る (README「検索とRate Limiting」)。
 
 ### Email
 
-- `inaridiy-email` のretryはmessage単位。5回失敗するとDLQへ移る。
-- malformed messageはpoison retryを避けるためackし、event logを残す。
-- newsletterの`failed` deliveryはcronが最大8回enqueueを再試行する。
+- newsletterの`failed` deliveryはcronがbackoff付きで最大8回再送する。
 - newsletter campaignが`partial`なら`dead`件数をAdminで確認する。
+- magic link等の送信失敗はSettings → Emailのtest emailで原因を確認する。
 
 ### Search
 
-- `SEARCH` が利用できない場合も公開検索はFTSへfallbackする。
-- D1 reconciliation errorでAI Search itemを手動削除しない。次の毎時実行またはcontent save/publishで回復する。
-- missing tableはそのcollectionだけ非authoritative扱いになり、既存itemは保持される。
+- `AI_SEARCH` が利用できない、またはAI Searchが失敗した場合、公開検索はFTSへfallbackする。
+- indexがずれた場合はAdmin → Cloudflare AI SearchのSync All Contentで再同期する。
+
+### Translation
+
+- 翻訳失敗 (`model_or_contract` failure) では古い英語entryがunpublishされ、`/en` は日本語へfallbackする。日本語entryを再保存/再publishすると再試行される。
+- Workers AIの `4006: Service temporarily at capacity` は一時的なmodel容量不足。続く場合はAdmin → Translatorでmodelを変える。
 
 ### Content identity
 

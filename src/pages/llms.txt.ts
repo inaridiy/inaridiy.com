@@ -15,7 +15,7 @@ export const GET: APIRoute = async ({ cache, site, url }) => {
 
 	const [{ posts, cacheHints }, aboutResult] = await Promise.all([
 		fetchAllPublishedPosts(),
-		getEmDashEntry("pages", "about"),
+		getEmDashEntry("pages", "about", { locale: "ja" }),
 	]);
 	for (const hint of cacheHints) cache.set(hint);
 	cache.set(aboutResult.cacheHint);

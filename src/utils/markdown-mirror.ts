@@ -8,6 +8,7 @@
  * lists, links, marks, code fences with language, images; unknown custom
  * blocks survive as opaque `<!--ec:block ... -->` fences).
  */
+import { localizedPath, type ContentLocale } from "@inaridiy/content-contract";
 import type {
 	CacheHint,
 	ContentEntry,
@@ -26,7 +27,7 @@ export type PageEntry = ContentEntry<InferCollectionData<"pages">>;
  * callers must pass each one to `cache.set()` so the responses carry the
  * same Cache-Tags (collection + entry ULIDs) as the HTML pages.
  */
-export async function fetchAllPublishedPosts(): Promise<{
+export async function fetchAllPublishedPosts(locale: ContentLocale = "ja"): Promise<{
 	posts: PostEntry[];
 	cacheHints: CacheHint[];
 }> {
@@ -35,6 +36,7 @@ export async function fetchAllPublishedPosts(): Promise<{
 	let cursor: string | undefined;
 	do {
 		const { entries, nextCursor, cacheHint } = await getEmDashCollection("posts", {
+			locale,
 			status: "published",
 			orderBy: { published_at: "desc" },
 			limit: 100,
@@ -45,30 +47,6 @@ export async function fetchAllPublishedPosts(): Promise<{
 		cursor = nextCursor;
 	} while (cursor);
 	return { posts, cacheHints };
-}
-
-/**
- * Language-resolved view of a post. The `en` fallbacks mirror
- * src/pages/en/posts/[slug].astro exactly: `title_en || title`,
- * `excerpt_en || excerpt`, `content_en || content`, and
- * `translated = Boolean(content_en)`.
- */
-export function resolvePostFields(post: PostEntry, lang: "ja" | "en") {
-	const { data } = post;
-	if (lang === "en") {
-		return {
-			title: data.title_en || data.title,
-			excerpt: data.excerpt_en || data.excerpt,
-			content: data.content_en || data.content,
-			translated: Boolean(data.content_en),
-		};
-	}
-	return {
-		title: data.title,
-		excerpt: data.excerpt,
-		content: data.content,
-		translated: false,
-	};
 }
 
 /** JSON string escaping doubles as valid YAML double-quoted scalars. */
@@ -85,9 +63,21 @@ export function postBodyMarkdown(content: PortableTextBlock[] | undefined): stri
 	return `${portableTextToMarkdown(content ?? []).trimEnd()}\n`;
 }
 
+export interface PostMarkdownOptions {
+	lang: ContentLocale;
+	/** For `lang: "en"`: false when the page fell back to the Japanese entry. */
+	translated?: boolean;
+	/** For `lang: "en"`: public path of the Japanese original. */
+	originalPath?: string;
+}
+
 /** One post as a standalone Markdown document (frontmatter + body). */
-export function postToMarkdown(post: PostEntry, origin: string, lang: "ja" | "en"): string {
-	const { title, excerpt, content, translated } = resolvePostFields(post, lang);
+export function postToMarkdown(
+	post: PostEntry,
+	origin: string,
+	{ lang, translated = false, originalPath }: PostMarkdownOptions,
+): string {
+	const { title, excerpt, content } = post.data;
 	const slug = post.id;
 	const date = post.data.publishedAt?.toISOString().slice(0, 10);
 	const categories = (post.data.terms?.category ?? []).map((term) => term.label);
@@ -100,14 +90,14 @@ export function postToMarkdown(post: PostEntry, origin: string, lang: "ja" | "en
 	if (excerpt) frontmatter.push(`excerpt: ${yamlText(oneLine(excerpt))}`);
 	frontmatter.push(`lang: ${lang}`);
 	if (lang === "en") frontmatter.push(`translated: ${translated}`);
-	frontmatter.push(`source: ${origin}${lang === "en" ? "/en" : ""}/posts/${slug}`);
+	frontmatter.push(`source: ${origin}${localizedPath("posts", slug, lang)}`);
 	frontmatter.push("---");
 
 	const parts = [frontmatter.join("\n"), "", `# ${title}`, ""];
 	if (lang === "en") {
 		parts.push(
 			translated
-				? `> Auto-translated from Japanese by an LLM. Original: ${origin}/posts/${slug}`
+				? `> Auto-translated from Japanese by an LLM. Original: ${origin}${originalPath ?? localizedPath("posts", slug, "ja")}`
 				: `> English translation is not available yet — this is the Japanese original.`,
 			"",
 		);

@@ -10,7 +10,7 @@ if (!slug) return Astro.redirect("/404");
 // /about is the canonical URL for the about page
 if (slug === "about") return Astro.redirect("/about");
 
-const { entry: page, cacheHint } = await getEmDashEntry("pages", slug);
+const { entry: page, cacheHint } = await getEmDashEntry("pages", slug, { locale: "ja" });
 if (!page) return Astro.redirect("/404");
 Astro.cache.set(cacheHint);
 ---

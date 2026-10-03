@@ -2,11 +2,10 @@ import cloudflare from "@astrojs/cloudflare";
 import { cacheCloudflare } from "@astrojs/cloudflare/cache";
 import react from "@astrojs/react";
 import { d1, kvCache, r2, sandbox } from "@emdash-cms/cloudflare";
-import { cloudflareEmail } from "@emdash-cms/cloudflare/plugins";
+import { aiSearch, cloudflareEmail } from "@emdash-cms/cloudflare/plugins";
 import { cachePurgePlugin } from "emdash-plugin-cache-purge";
 import { githubExportPlugin } from "emdash-plugin-github-export";
 import { newsletterPlugin } from "emdash-plugin-newsletter";
-import { searchSyncPlugin } from "emdash-plugin-search-sync";
 import { translatorPlugin } from "emdash-plugin-translator";
 import { defineConfig, fontProviders } from "astro/config";
 import emdash from "emdash/astro";
@@ -26,6 +25,14 @@ const PAGE_CACHE = { maxAge: 300, swr: 86400 };
 export default defineConfig({
 	output: "server",
 	site: SITE_URL,
+	// EmDash native i18n: Japanese is the source locale (unprefixed), English
+	// entries live in the same translation groups under /en. Never prefix the
+	// default locale — that 404s the injected /_emdash admin routes.
+	i18n: {
+		defaultLocale: "ja",
+		locales: ["ja", "en"],
+		fallback: { en: "ja" },
+	},
 	adapter: cloudflare(),
 	image: {
 		layout: "constrained",
@@ -43,7 +50,20 @@ export default defineConfig({
 			// Workspace plugins are trusted-only (they import cloudflare:workers env)
 			plugins: [
 				translatorPlugin(),
-				searchSyncPlugin(),
+				// AI Search indexing (one document per entry and locale) + admin
+				// page; /search queries the same instance. URLs are rewritten to
+				// the site's unprefixed-ja scheme in src/utils/search.ts.
+				aiSearch({
+					binding: "AI_SEARCH",
+					// AI Search bindings always reach the real account, even under
+					// `astro dev`: keep dev documents out of the production index.
+					instanceName: isDev ? "inaridiy-content-dev" : "inaridiy-content",
+					urlTemplates: {
+						posts: "/{locale}/posts/{slug}",
+						pages: "/{locale}/pages/{slug}",
+						activities: "/{locale}/activities",
+					},
+				}),
 				githubExportPlugin(),
 				newsletterPlugin(),
 				cachePurgePlugin(),

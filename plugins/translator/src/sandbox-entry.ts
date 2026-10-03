@@ -2,8 +2,11 @@ import { env } from "cloudflare:workers";
 import {
 	getContentContract,
 	isContentCollection,
+	SOURCE_LOCALE,
+	TARGET_LOCALE,
 	type ContentCollectionContract,
 } from "@inaridiy/content-contract";
+import type { PluginContentItem as ContentItem } from "emdash";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 import {
 	hashSource,
@@ -16,24 +19,29 @@ import {
 /**
  * Auto-translation plugin (runtime).
  *
- * On publish/save of published content the hook only ENQUEUES a
- * TranslatorWorkflow instance (durable, per-chunk retries). Doing the model
- * calls inline is not survivable here: afterSave/afterPublish hooks run in
- * the request's waitUntil, and Workers cancels those ~30s after the
- * response — long translations died mid-flight, taking the rest of the hook
- * chain (search-sync, github-export) with them.
+ * Content uses EmDash's native i18n: Japanese entries are the source and
+ * each one has (at most) one English entry in its translation group. This
+ * plugin owns that English entry — it creates it with `translationOf`,
+ * keeps its translatable fields in sync with the source and mirrors the
+ * source's publication state. Non-translatable fields (activity date/kind/
+ * url, the OG image) are synced by EmDash itself.
+ *
+ * On publish/save of a published source the hook only ENQUEUES a
+ * TranslatorWorkflow instance (durable, per-segment retries). Doing the model
+ * calls inline is not survivable: afterSave/afterPublish hooks run in the
+ * request's waitUntil, and Workers cancels those ~30s after the response.
  *
  * The workflow calls back into the `plan` and `complete` routes below
  * (authenticated by a KV-minted shared secret) so every content read/write
- * stays inside the plugin bridge. The write-back re-fires afterSave, which
- * re-indexes/re-exports the fresh `*_en` fields; the in-flight lease stops
- * that event from enqueueing a second job.
+ * stays inside the plugin bridge. Writes to the English entry re-fire the
+ * content hooks for that entry; they are ignored here because only source
+ * locale entries are translated.
  *
  * TRUSTED-ONLY: reaches the TRANSLATOR_WORKFLOW binding via `import { env }
  * from "cloudflare:workers"`. Do not move to `sandboxed: []`.
  *
- * A source-content hash in KV skips retranslation when the Japanese text
- * didn't change (e.g. admin fixes a typo in the English fields).
+ * A source-content hash in KV (keyed by the SOURCE entry) skips
+ * retranslation when the Japanese text didn't change.
  */
 
 const DEFAULT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
@@ -62,14 +70,12 @@ interface ContentEvent {
 }
 
 interface PreparedStringField {
-	source: string;
-	target: string;
+	field: string;
 	text: string | null;
 }
 
 interface PreparedPortableTextField {
-	source: string;
-	target: string;
+	field: string;
 	prepared: ReturnType<typeof preparePortableText>;
 }
 
@@ -86,27 +92,28 @@ interface TranslationLease {
 	leaseUntil: string;
 }
 
+function isSourceItem(item: ContentItem): boolean {
+	return item.locale === null || item.locale === SOURCE_LOCALE;
+}
+
 function buildTranslationPlan(
 	data: Record<string, unknown>,
 	contract: ContentCollectionContract,
 	settings: Settings,
 ): TranslationPlan {
-	const strings = Object.entries(contract.translation.strings).map(([source, target]) => ({
-		source,
-		target,
+	const strings = contract.strings.map((field) => ({
+		field,
 		text:
-			typeof data[source] === "string" && data[source].trim() !== ""
-				? data[source]
-				: null,
+			typeof data[field] === "string" && data[field].trim() !== "" ? data[field] : null,
 	}));
-	const portableText = Object.entries(contract.translation.portableText).map(
-		([source, target]) => ({ source, target, prepared: preparePortableText(data[source]) }),
-	);
+	const portableText = contract.portableText.map((field) => ({
+		field,
+		prepared: preparePortableText(data[field]),
+	}));
+	// Key order and shape are part of the hash: they match the hashes stored
+	// before the native-i18n migration, so migrated translations are reused.
 	const sourceValues = Object.fromEntries(
-		[
-			...strings.map(({ source }) => source),
-			...portableText.map(({ source }) => source),
-		].map((source) => [source, data[source] ?? null]),
+		[...contract.strings, ...contract.portableText].map((field) => [field, data[field] ?? null]),
 	);
 	const batch = [
 		...strings.flatMap((entry) => (entry.text === null ? [] : [entry.text])),
@@ -128,35 +135,24 @@ function buildTranslationPlan(
 	};
 }
 
-function translatedUpdates(plan: TranslationPlan, translated: string[]): Record<string, unknown> {
-	const updates: Record<string, unknown> = {};
+function translatedFields(plan: TranslationPlan, translated: string[]): Record<string, unknown> {
+	const fields: Record<string, unknown> = {};
 	let cursor = 0;
 	for (const entry of plan.strings) {
-		updates[entry.target] = entry.text === null ? "" : translated[cursor++];
+		fields[entry.field] = entry.text === null ? "" : translated[cursor++];
 	}
 	for (const entry of plan.portableText) {
 		for (const span of entry.prepared.spans) {
 			span.text = translated[cursor++];
 		}
-		updates[entry.target] = entry.prepared.clone;
+		fields[entry.field] = entry.prepared.clone;
 	}
 	if (cursor !== translated.length) {
 		throw new Error(
 			`Translation mapping consumed ${cursor} items, received ${translated.length}`,
 		);
 	}
-	return updates;
-}
-
-function clearedTranslationUpdates(contract: ContentCollectionContract): Record<string, unknown> {
-	return {
-		...Object.fromEntries(
-			Object.values(contract.translation.strings).map((target) => [target, ""]),
-		),
-		...Object.fromEntries(
-			Object.values(contract.translation.portableText).map((target) => [target, []]),
-		),
-	};
+	return fields;
 }
 
 function hashKeyFor(collection: string, id: string): string {
@@ -178,6 +174,55 @@ async function releaseLease(
 	if ((await ctx.kv.get<TranslationLease>(key))?.token === token) {
 		await ctx.kv.delete(key);
 	}
+}
+
+/* ------------------------------------------------------------------ */
+/* English entry of a source's translation group                       */
+/* ------------------------------------------------------------------ */
+
+async function findTarget(
+	ctx: PluginContext,
+	collection: string,
+	sourceId: string,
+): Promise<ContentItem | null> {
+	const { translations } = await ctx.content!.getTranslations!(collection, sourceId);
+	const summary = translations.find((translation) => translation.locale === TARGET_LOCALE);
+	return summary ? ctx.content!.get(collection, summary.id) : null;
+}
+
+/** Create or update the English entry and publish it alongside its source. */
+async function writeTarget(
+	ctx: PluginContext,
+	collection: string,
+	source: ContentItem,
+	fields: Record<string, unknown>,
+): Promise<ContentItem> {
+	const existing = await findTarget(ctx, collection, source.id);
+	const target = existing
+		? await ctx.content!.update!(collection, existing.id, fields)
+		: await ctx.content!.create!(collection, fields, {
+				locale: TARGET_LOCALE,
+				translationOf: source.id,
+			});
+	if (source.status === "published") {
+		const versioned = await ctx.content!.getVersioned!(collection, target.id);
+		if (versioned) await ctx.content!.publish!(collection, target.id, { _rev: versioned._rev });
+	}
+	return target;
+}
+
+/** Take the English entry offline so /en falls back to the source. */
+async function unpublishTarget(
+	ctx: PluginContext,
+	collection: string,
+	sourceId: string,
+): Promise<boolean> {
+	const target = await findTarget(ctx, collection, sourceId);
+	if (!target || target.status !== "published") return false;
+	const versioned = await ctx.content!.getVersioned!(collection, target.id);
+	if (!versioned) return false;
+	await ctx.content!.unpublish!(collection, target.id, { _rev: versioned._rev });
+	return true;
 }
 
 /**
@@ -215,7 +260,7 @@ async function recordFailure(
 		model: string;
 		error: string;
 		failureKind: "enqueue" | "model_or_contract" | "persistence";
-		staleTargetsCleared?: boolean;
+		staleTargetUnpublished?: boolean;
 		providerRuns?: ProviderMetadata[];
 	},
 ): Promise<void> {
@@ -229,6 +274,16 @@ async function recordFailure(
 	);
 }
 
+/** Reads the event's entry and returns it only when it is a published source. */
+async function readPublishedSource(
+	ctx: PluginContext,
+	collection: string,
+	id: string,
+): Promise<ContentItem | null> {
+	const item = await ctx.content!.get(collection, id);
+	return item && isSourceItem(item) && item.status === "published" ? item : null;
+}
+
 async function enqueueTranslation(event: ContentEvent, ctx: PluginContext): Promise<void> {
 	const { collection } = event;
 	if (!isContentCollection(collection)) return;
@@ -239,24 +294,28 @@ async function enqueueTranslation(event: ContentEvent, ctx: PluginContext): Prom
 	const settings = await readSettings(ctx);
 	if (!settings.enabled) return;
 
-	// Re-read the entry instead of trusting the (possibly slim) event payload
-	const item = await ctx.content!.get(collection, id);
-	if (!item || item.status !== "published") return;
+	// Re-read the entry instead of trusting the (possibly slim) event payload.
+	// English entries are written by this plugin and never translated.
+	const item = await readPublishedSource(ctx, collection, id);
+	if (!item) return;
 	const plan = buildTranslationPlan(item.data, contract, settings);
 	const hashKey = hashKeyFor(collection, id);
-	if ((await ctx.kv.get<string>(hashKey)) === plan.sourceHash) return;
+	if ((await ctx.kv.get<string>(hashKey)) === plan.sourceHash) {
+		// Source unchanged, but the English entry may still be offline after a
+		// re-publish of the source: bring it back with it.
+		const target = await findTarget(ctx, collection, id);
+		if (target && target.status !== "published") {
+			const versioned = await ctx.content!.getVersioned!(collection, target.id);
+			if (versioned) await ctx.content!.publish!(collection, target.id, { _rev: versioned._rev });
+		}
+		return;
+	}
 
 	// Nothing to translate (all source fields empty): write the empty
-	// targets inline — no workflow needed. Hash goes first so the afterSave
-	// this update re-fires sees it and cannot recurse.
+	// targets inline — no workflow needed.
 	if (plan.batch.length === 0) {
+		await writeTarget(ctx, collection, item, translatedFields(plan, []));
 		await ctx.kv.set(hashKey, plan.sourceHash);
-		try {
-			await ctx.content!.update!(collection, id, translatedUpdates(plan, []));
-		} catch (error) {
-			await ctx.kv.delete(hashKey);
-			throw error;
-		}
 		return;
 	}
 
@@ -314,6 +373,78 @@ async function enqueueTranslation(event: ContentEvent, ctx: PluginContext): Prom
 	}
 }
 
+/** Source taken offline: take its English entry offline too. */
+async function followUnpublish(event: ContentEvent, ctx: PluginContext): Promise<void> {
+	if (!isContentCollection(event.collection)) return;
+	const id = typeof event.content.id === "string" ? event.content.id : null;
+	if (!id) return;
+	const item = await ctx.content!.get(event.collection, id);
+	if (!item || !isSourceItem(item)) return;
+	if (await unpublishTarget(ctx, event.collection, id)) {
+		ctx.log.info(`auto-translator: unpublished English entry of ${event.collection}/${id}`);
+	}
+}
+
+function pendingDeleteKeyFor(collection: string, id: string): string {
+	return `state:pendingDelete:${collection}:${id}`;
+}
+
+/**
+ * Before a source moves to trash, remember its English entry: once trashed,
+ * the source no longer resolves its translation group.
+ */
+async function rememberTargetBeforeDelete(
+	event: { id: string; collection: string },
+	ctx: PluginContext,
+): Promise<void> {
+	if (!isContentCollection(event.collection)) return;
+	const item = await ctx.content!.get(event.collection, event.id);
+	if (!item || !isSourceItem(item)) return;
+	const target = await findTarget(ctx, event.collection, event.id);
+	if (target) await ctx.kv.set(pendingDeleteKeyFor(event.collection, event.id), target.id);
+}
+
+/**
+ * Source trashed or deleted: trash its English entry too, so no orphaned
+ * English page stays online, and forget the hash so restoring and
+ * re-publishing the source retranslates (recreating the English entry).
+ */
+async function followDelete(event: { id: string; collection: string }, ctx: PluginContext) {
+	if (!isContentCollection(event.collection)) return;
+	await ctx.kv.delete(hashKeyFor(event.collection, event.id));
+	const pendingKey = pendingDeleteKeyFor(event.collection, event.id);
+	const targetId = await ctx.kv.get<string>(pendingKey);
+	if (!targetId) return;
+	await ctx.kv.delete(pendingKey);
+	if (await ctx.content!.delete!(event.collection, targetId)) {
+		await ctx.kv.set(trashedKeyFor(event.collection, event.id), targetId);
+		ctx.log.info(`auto-translator: trashed English entry of ${event.collection}/${event.id}`);
+	}
+}
+
+function trashedKeyFor(collection: string, id: string): string {
+	return `state:trashed:${collection}:${id}`;
+}
+
+/**
+ * Source restored from trash: restore the English entry trashed with it, so
+ * it keeps its slug (a new entry would get a suffixed one). The next publish
+ * of the source retranslates and republishes it.
+ */
+async function followRestore(event: ContentEvent, ctx: PluginContext): Promise<void> {
+	if (!isContentCollection(event.collection)) return;
+	const id = typeof event.content.id === "string" ? event.content.id : null;
+	if (!id) return;
+	const trashedKey = trashedKeyFor(event.collection, id);
+	const targetId = await ctx.kv.get<string>(trashedKey);
+	if (!targetId) return;
+	await ctx.kv.delete(trashedKey);
+	const trashed = await ctx.content!.getTrashedVersioned!(event.collection, targetId);
+	if (!trashed) return;
+	await ctx.content!.restore!(event.collection, targetId, { _rev: trashed._rev });
+	ctx.log.info(`auto-translator: restored English entry of ${event.collection}/${id}`);
+}
+
 /* ------------------------------------------------------------------ */
 /* Workflow callback routes                                            */
 /* ------------------------------------------------------------------ */
@@ -339,8 +470,8 @@ function parseJobFields(input: unknown): TranslationJobParams | null {
 
 /**
  * Returns the translation batch for a job, or ok:false when the job is
- * obsolete (entry unpublished or source changed since enqueue). Obsolete
- * jobs release their lease so a follow-up save can enqueue immediately.
+ * obsolete (source unpublished or changed since enqueue). Obsolete jobs
+ * release their lease so a follow-up save can enqueue immediately.
  */
 async function handlePlan(routeCtx: RouteInput, ctx: PluginContext) {
 	const job = parseJobFields(routeCtx.input);
@@ -349,11 +480,10 @@ async function handlePlan(routeCtx: RouteInput, ctx: PluginContext) {
 	}
 	if (!isContentCollection(job.collection)) return { ok: false, reason: "bad_collection" };
 	const settings = await readSettings(ctx);
-	const item = await ctx.content!.get(job.collection, job.id);
-	const plan =
-		item && item.status === "published"
-			? buildTranslationPlan(item.data, getContentContract(job.collection), settings)
-			: null;
+	const item = await readPublishedSource(ctx, job.collection, job.id);
+	const plan = item
+		? buildTranslationPlan(item.data, getContentContract(job.collection), settings)
+		: null;
 	if (!plan || plan.sourceHash !== job.sourceHash) {
 		await releaseLease(ctx, job.collection, job.id, job.leaseToken);
 		return { ok: false, reason: "stale" };
@@ -361,7 +491,7 @@ async function handlePlan(routeCtx: RouteInput, ctx: PluginContext) {
 	return { ok: true, batch: plan.batch, model: settings.model, gatewayId: settings.gatewayId };
 }
 
-/** Persists a finished job: translated updates on success, target clear on failure. */
+/** Persists a finished job: English entry on success, unpublish on failure. */
 async function handleComplete(routeCtx: RouteInput, ctx: PluginContext) {
 	const job = parseJobFields(routeCtx.input);
 	if (!job || !(await verifySecret(ctx, job.secret))) {
@@ -372,26 +502,23 @@ async function handleComplete(routeCtx: RouteInput, ctx: PluginContext) {
 	const contract = getContentContract(job.collection);
 	const settings = await readSettings(ctx);
 	const hashKey = hashKeyFor(job.collection, job.id);
-	const item = await ctx.content!.get(job.collection, job.id);
-	const plan =
-		item && item.status === "published"
-			? buildTranslationPlan(item.data, contract, settings)
-			: null;
+	const item = await readPublishedSource(ctx, job.collection, job.id);
+	const plan = item ? buildTranslationPlan(item.data, contract, settings) : null;
 	const planIsCurrent = plan !== null && plan.sourceHash === job.sourceHash;
 
 	if (typeof request.error === "string") {
-		// The workflow exhausted its retries. Clear the (now stale) targets so
-		// /en falls back to Japanese instead of showing an outdated translation —
-		// but only while this job still describes the live source.
-		let staleTargetsCleared = false;
+		// The workflow exhausted its retries. Take the (now stale) English
+		// entry offline so /en falls back to Japanese instead of showing an
+		// outdated translation — but only while this job still describes the
+		// live source.
+		let staleTargetUnpublished = false;
 		if (planIsCurrent && (await ctx.kv.get<string>(hashKey)) !== job.sourceHash) {
 			try {
-				await ctx.content!.update!(job.collection, job.id, clearedTranslationUpdates(contract));
-				staleTargetsCleared = true;
-			} catch (clearError) {
+				staleTargetUnpublished = await unpublishTarget(ctx, job.collection, job.id);
+			} catch (unpublishError) {
 				ctx.log.error(
-					`auto-translator: could not clear stale targets for ${job.collection}/${job.id}: ${
-						clearError instanceof Error ? clearError.message : String(clearError)
+					`auto-translator: could not unpublish stale English entry of ${job.collection}/${job.id}: ${
+						unpublishError instanceof Error ? unpublishError.message : String(unpublishError)
 					}`,
 				);
 			}
@@ -402,25 +529,27 @@ async function handleComplete(routeCtx: RouteInput, ctx: PluginContext) {
 			model: settings.model,
 			error: request.error,
 			failureKind: "model_or_contract",
-			staleTargetsCleared,
+			staleTargetUnpublished,
 			providerRuns: request.providerRuns ?? [],
 		});
 		await releaseLease(ctx, job.collection, job.id, job.leaseToken);
 		return { ok: true };
 	}
 
-	if (!planIsCurrent) {
+	if (!planIsCurrent || !item) {
 		ctx.log.info(`auto-translator: discarded stale result for ${job.collection}/${job.id}`);
 		await releaseLease(ctx, job.collection, job.id, job.leaseToken);
 		return { ok: false, reason: "stale" };
 	}
 	if (!Array.isArray(request.translations)) return { ok: false, reason: "bad_request" };
 
+	let target: ContentItem;
 	try {
-		await ctx.content!.update!(
+		target = await writeTarget(
+			ctx,
 			job.collection,
-			job.id,
-			translatedUpdates(plan, request.translations),
+			item,
+			translatedFields(plan, request.translations),
 		);
 	} catch (error) {
 		await recordFailure(ctx, {
@@ -439,16 +568,15 @@ async function handleComplete(routeCtx: RouteInput, ctx: PluginContext) {
 		at: new Date().toISOString(),
 		collection: job.collection,
 		id: job.id,
+		targetId: target.id,
 		ok: true,
 		model: settings.model,
 		segments: plan.batch.length,
 		providerRuns: request.providerRuns ?? [],
 	});
-	// Release LAST: the update above re-fires afterSave, and the held lease is
-	// what stops that event from enqueueing a duplicate job.
 	await releaseLease(ctx, job.collection, job.id, job.leaseToken);
 	ctx.log.info(
-		`auto-translator: translated ${job.collection}/${job.id} (${plan.batch.length} segments)`,
+		`auto-translator: translated ${job.collection}/${job.id} -> ${target.id} (${plan.batch.length} segments)`,
 	);
 	return { ok: true };
 }
@@ -472,7 +600,7 @@ interface LastRun {
 	model: string;
 	segments?: number;
 	failureKind?: "enqueue" | "persistence" | "model_or_contract";
-	staleTargetsCleared?: boolean;
+	staleTargetUnpublished?: boolean;
 	providerRuns?: ProviderMetadata[];
 	error?: string;
 }
@@ -486,7 +614,7 @@ async function settingsBlocks(ctx: PluginContext) {
 			{ type: "header", text: "Auto Translator" },
 			{
 				type: "context",
-				text: "Translates published Japanese content into the *_en fields via a durable Cloudflare Workflow calling Workers AI — no API keys. Model is a Workers AI model id (see `wrangler ai models`). Gateway ID is optional and only adds AI Gateway analytics/caching.",
+				text: "Translates published Japanese entries into their English translation (EmDash i18n) via a durable Cloudflare Workflow calling Workers AI — no API keys. The English entry is owned by this plugin: manual edits are overwritten when the Japanese source changes. Model is a Workers AI model id (see `wrangler ai models`). Gateway ID is optional and only adds AI Gateway analytics/caching.",
 			},
 			{
 				type: "form",
@@ -548,8 +676,12 @@ async function settingsBlocks(ctx: PluginContext) {
 }
 
 export default {
+	// Priority 50: ahead of the other content hooks, and in particular of
+	// EmDash's aiSearch() hooks (default 100, errorPolicy "abort"), whose slow
+	// AI Search calls time out and abort the rest of the chain.
 	hooks: {
 		"content:afterSave": {
+			priority: 50,
 			timeout: 30000,
 			errorPolicy: "continue",
 			handler: async (event: ContentEvent, ctx: PluginContext) => {
@@ -557,10 +689,43 @@ export default {
 			},
 		},
 		"content:afterPublish": {
+			priority: 50,
 			timeout: 30000,
 			errorPolicy: "continue",
 			handler: async (event: ContentEvent, ctx: PluginContext) => {
 				await enqueueTranslation(event, ctx);
+			},
+		},
+		"content:afterUnpublish": {
+			priority: 50,
+			timeout: 30000,
+			errorPolicy: "continue",
+			handler: async (event: ContentEvent, ctx: PluginContext) => {
+				await followUnpublish(event, ctx);
+			},
+		},
+		"content:afterRestore": {
+			priority: 50,
+			timeout: 10000,
+			errorPolicy: "continue",
+			handler: async (event: ContentEvent, ctx: PluginContext) => {
+				await followRestore(event, ctx);
+			},
+		},
+		"content:beforeDelete": {
+			priority: 50,
+			timeout: 10000,
+			errorPolicy: "continue",
+			handler: async (event: { id: string; collection: string }, ctx: PluginContext) => {
+				await rememberTargetBeforeDelete(event, ctx);
+			},
+		},
+		"content:afterDelete": {
+			priority: 50,
+			timeout: 10000,
+			errorPolicy: "continue",
+			handler: async (event: { id: string; collection: string }, ctx: PluginContext) => {
+				await followDelete(event, ctx);
 			},
 		},
 	},

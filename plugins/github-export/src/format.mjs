@@ -12,8 +12,8 @@
 /**
  * Synced collections. `fields` are frontmatter fields (in order); `body`
  * names the Portable Text field stored as the Markdown body (null =
- * frontmatter-only files, e.g. activities). `*_en` fields belong to the
- * translator and are never synced.
+ * frontmatter-only files, e.g. activities). Only Japanese source entries are
+ * synced; their English translations belong to the translator plugin.
  */
 export const COLLECTIONS = {
 	posts: { dir: "content/posts", fields: ["title", "excerpt"], body: "content" },

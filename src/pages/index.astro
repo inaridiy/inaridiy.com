@@ -2,17 +2,20 @@
 import { getEmDashCollection, getSiteSettings } from "emdash";
 import Base from "../layouts/Base.astro";
 import PostList from "../components/PostList.astro";
+import { staticAlternates } from "../utils/i18n";
 import { resolveBlogSiteIdentity } from "../utils/site-identity";
 
 const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings());
 
 const [postsResult, activitiesResult] = await Promise.all([
 	getEmDashCollection("posts", {
+		locale: "ja",
 		status: "published",
 		orderBy: { published_at: "desc" },
 		limit: 20,
 	}),
 	getEmDashCollection("activities", {
+		locale: "ja",
 		status: "published",
 		orderBy: { date: "desc" },
 		limit: 5,
@@ -39,11 +42,7 @@ const activities = activitiesResult.entries
 <Base
 	title={siteTitle}
 	description={siteTagline}
-	alternates={[
-		{ hreflang: "ja", path: "/" },
-		{ hreflang: "en", path: "/en" },
-		{ hreflang: "x-default", path: "/" },
-	]}
+	alternates={staticAlternates("/")}
 >
 	<p class="tagline">{siteTagline}</p>
 

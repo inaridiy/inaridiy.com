@@ -2,11 +2,13 @@
 import { getEmDashCollection, getSiteSettings } from "emdash";
 import Base from "../../layouts/Base.astro";
 import PostList from "../../components/PostList.astro";
+import { staticAlternates } from "../../utils/i18n";
 import { resolveBlogSiteIdentity } from "../../utils/site-identity";
 
 const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
 
 const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
+	locale: "en",
 	status: "published",
 	orderBy: { published_at: "desc" },
 	limit: 20,
@@ -18,15 +20,11 @@ Astro.cache.set(cacheHint);
 	title={`${siteTitle} (EN)`}
 	description="Personal blog of inaridiy — English edition (auto-translated)"
 	lang="en"
-	alternates={[
-		{ hreflang: "ja", path: "/" },
-		{ hreflang: "en", path: "/en" },
-		{ hreflang: "x-default", path: "/" },
-	]}
+	alternates={staticAlternates("/")}
 >
 	<p class="tagline">
-		English edition. Posts are auto-translated from Japanese by an LLM via
-		Cloudflare AI Gateway — expect occasional rough edges.
+		English edition. Posts are auto-translated from Japanese by an LLM on
+		Workers AI — expect occasional rough edges.
 	</p>
 
 	{

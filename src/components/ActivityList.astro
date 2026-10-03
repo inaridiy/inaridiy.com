@@ -2,12 +2,10 @@
 interface ActivityEntryLike {
 	data: {
 		title: string;
-		title_en?: string | null;
 		date: string | Date;
 		kind?: string | null;
 		url?: string | null;
 		description?: string | null;
-		description_en?: string | null;
 	};
 }
 
@@ -27,20 +25,14 @@ interface Props {
 const { activities, lang = "ja" } = Astro.props;
 const rows: ActivityRow[] = activities
 	.map((activity) => ({
-		title:
-			lang === "en"
-				? activity.data.title_en || activity.data.title
-				: activity.data.title,
+		title: activity.data.title,
 		date:
 			activity.data.date instanceof Date
 				? activity.data.date
 				: new Date(activity.data.date),
 		kind: activity.data.kind ?? null,
 		url: activity.data.url ?? null,
-		description:
-			lang === "en"
-				? activity.data.description_en || activity.data.description || null
-				: activity.data.description ?? null,
+		description: activity.data.description ?? null,
 	}))
 	.filter((row) => !Number.isNaN(row.date.getTime()))
 	.sort((a, b) => b.date.getTime() - a.date.getTime());

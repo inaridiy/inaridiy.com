@@ -192,6 +192,8 @@ async function createCampaign(event: ContentEvent, ctx: PluginContext): Promise<
 
 	const item = await ctx.content!.get("posts", id);
 	if (!item || item.status !== "published" || !item.slug) return;
+	// Announce Japanese posts only: English entries are translations of them.
+	if (item.locale && item.locale !== "ja") return;
 	const now = new Date().toISOString();
 	await campaigns(ctx).put(id, {
 		postId: id,
@@ -462,7 +464,9 @@ export default {
 			await ensureCampaignCron(ctx);
 		},
 		"content:afterPublish": {
-			priority: 400,
+			// Before aiSearch() (100, errorPolicy "abort") so a slow index
+			// write cannot skip campaign creation.
+			priority: 60,
 			timeout: 30_000,
 			errorPolicy: "continue",
 			handler: createCampaign,

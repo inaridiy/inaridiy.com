@@ -38,22 +38,8 @@
 				{
 					"slug": "featured_image",
 					"label": "OG Image",
-					"type": "image"
-				},
-				{
-					"slug": "title_en",
-					"label": "Title (EN / auto-translated)",
-					"type": "string"
-				},
-				{
-					"slug": "excerpt_en",
-					"label": "Excerpt (EN / auto-translated)",
-					"type": "text"
-				},
-				{
-					"slug": "content_en",
-					"label": "Content (EN / auto-translated)",
-					"type": "portableText"
+					"type": "image",
+					"translatable": false
 				}
 			]
 		},
@@ -75,16 +61,6 @@
 					"label": "Content",
 					"type": "portableText",
 					"searchable": true
-				},
-				{
-					"slug": "title_en",
-					"label": "Title (EN / auto-translated)",
-					"type": "string"
-				},
-				{
-					"slug": "content_en",
-					"label": "Content (EN / auto-translated)",
-					"type": "portableText"
 				}
 			]
 		},
@@ -105,33 +81,26 @@
 					"slug": "date",
 					"label": "Date",
 					"type": "datetime",
-					"required": true
+					"required": true,
+					"translatable": false
 				},
 				{
 					"slug": "kind",
 					"label": "Kind (talk / oss / article / work ...)",
-					"type": "string"
+					"type": "string",
+					"translatable": false
 				},
 				{
 					"slug": "url",
 					"label": "URL",
-					"type": "string"
+					"type": "string",
+					"translatable": false
 				},
 				{
 					"slug": "description",
 					"label": "Description",
 					"type": "text",
 					"searchable": true
-				},
-				{
-					"slug": "title_en",
-					"label": "Title (EN / auto-translated)",
-					"type": "string"
-				},
-				{
-					"slug": "description_en",
-					"label": "Description (EN / auto-translated)",
-					"type": "text"
 				}
 			]
 		}
@@ -190,6 +159,7 @@
 				"id": "about",
 				"slug": "about",
 				"status": "published",
+				"locale": "ja",
 				"data": {
 					"title": "自己紹介",
 					"content": [
@@ -246,6 +216,7 @@
 				"id": "post-hello",
 				"slug": "hello-inaridiy-com",
 				"status": "published",
+				"locale": "ja",
 				"data": {
 					"title": "inaridiy.com を作り直した",
 					"excerpt": "EmDash + Cloudflare Workers でブログを作り直した。D1・AI Search・AI Gateway 経由の自動英訳つき。",
@@ -318,6 +289,7 @@
 				"id": "activity-site-rebuild",
 				"slug": "site-rebuild-2026",
 				"status": "published",
+				"locale": "ja",
 				"data": {
 					"title": "inaridiy.com を EmDash + Cloudflare でリニューアル",
 					"date": "2026-07-18T00:00:00.000Z",
@@ -330,6 +302,7 @@
 				"id": "activity-sample-talk",
 				"slug": "sample-talk",
 				"status": "draft",
+				"locale": "ja",
 				"data": {
 					"title": "(サンプル) 登壇タイトルをここに",
 					"date": "2026-01-01T00:00:00.000Z",

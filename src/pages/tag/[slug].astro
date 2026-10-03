@@ -8,6 +8,7 @@ const term = slug ? await getTerm("tag", slug) : null;
 if (!term) return Astro.redirect("/404");
 
 const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
+	locale: "ja",
 	status: "published",
 	where: { tag: term.slug },
 	orderBy: { published_at: "desc" },

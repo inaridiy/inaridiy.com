@@ -1,8 +1,10 @@
+import type { ContentLocale } from "@inaridiy/content-contract";
 import { getEmDashCollection } from "emdash";
 
 /** Fetch the complete activity log while preserving every page's cache tag. */
-export async function getAllPublishedActivities() {
+export async function getAllPublishedActivities(locale: ContentLocale) {
 	let page = await getEmDashCollection("activities", {
+		locale,
 		status: "published",
 		orderBy: { date: "desc" },
 		limit: 100,
@@ -11,6 +13,7 @@ export async function getAllPublishedActivities() {
 	const cacheHints = [page.cacheHint];
 	while (page.nextCursor) {
 		page = await getEmDashCollection("activities", {
+			locale,
 			status: "published",
 			orderBy: { date: "desc" },
 			limit: 100,

@@ -30,6 +30,7 @@ const { siteTitle, lang, isLoggedIn } = Astro.props;
 			{isLoggedIn && <a href="/_emdash/admin">admin</a>}
 		</div>
 		<form method="get" action="/search" class="site-search">
+			{lang === "en" && <input type="hidden" name="lang" value="en" />}
 			<input
 				type="search"
 				name="q"

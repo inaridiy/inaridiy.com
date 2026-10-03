@@ -1,5 +1,7 @@
 # Content pipeline invariants — 2026-07-19
 
+> 2026-10-03: 「Search reconciliation」と「Email and newsletter」のQueue部分、`*_en` fieldを前提にした記述は [native i18n](2026-10-03-native-i18n.md) で置き換えた。Translationのbatch/contract/lease/hashの不変条件は引き続き有効 (stale targetはclearではなくunpublish)。
+
 ## Search reconciliation
 
 - Translation map、search projection、D1 columnsは `@inaridiy/content-contract` が正本。

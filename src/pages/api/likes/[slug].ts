@@ -69,7 +69,7 @@ async function resolveSlug(rawParam: string | undefined): Promise<string | null>
 	if (!slug || !SLUG_RE.test(slug)) return null;
 	// Same KV-cached query the post page uses — cheap, and keeps junk slugs
 	// from ever creating rows.
-	const { entry } = await getEmDashEntry("posts", slug);
+	const { entry } = await getEmDashEntry("posts", slug, { locale: "ja" });
 	return entry ? slug : null;
 }
 

@@ -1,56 +1,43 @@
 ---
-import {
-	decodeSlug,
-	getEmDashEntry,
-	getSeoMeta,
-	getSiteSettings,
-	type ContentSeo,
-} from "emdash";
+import { localizedPath, TARGET_LOCALE } from "@inaridiy/content-contract";
+import { decodeSlug, getEmDashEntry, getSeoMeta, getSiteSettings } from "emdash";
 import LikeButton from "../../../components/LikeButton.astro";
 import PostArticle from "../../../components/PostArticle.astro";
 import Base from "../../../layouts/Base.astro";
 import { descriptionFromContent } from "../../../utils/description";
+import { alternatesFor, getPublishedTranslations } from "../../../utils/i18n";
 import { getReadingTime } from "../../../utils/reading-time";
 import { resolveBlogSiteIdentity } from "../../../utils/site-identity";
 
 const slug = decodeSlug(Astro.params.slug);
 if (!slug) return Astro.redirect("/404");
 
-const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
+// Unknown English slugs fall back to the Japanese entry with that slug
+// (i18n fallback chain): a post whose translation is missing or offline, or
+// an /en link built from the Japanese slug.
+const { entry: post, cacheHint, fallbackLocale } = await getEmDashEntry("posts", slug, {
+	locale: TARGET_LOCALE,
+});
 if (!post) return Astro.redirect("/404");
 Astro.cache.set(cacheHint);
+const translations = await getPublishedTranslations("posts", post.data.id);
+const english = translations.en;
+if (fallbackLocale && english) return Astro.redirect(english.path, 301);
+const isTranslated = !fallbackLocale;
+// Likes and the OG card are keyed by the Japanese slug.
+const sourceSlug = translations.ja?.slug ?? slug;
 
 const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
-const title = post.data.title_en || post.data.title;
-const excerpt = post.data.excerpt_en || post.data.excerpt;
-const content = post.data.content_en || post.data.content;
-const storedSeo: unknown = Reflect.get(post.data, "seo");
-const sourceSeo =
-	typeof storedSeo === "object" && storedSeo !== null
-		? (storedSeo as Partial<ContentSeo>)
-		: {};
-const localizedPost = {
-	data: {
-		...post.data,
-		title,
-		excerpt,
-		seo: {
-			title: null,
-			description: null,
-			canonical: null,
-			image: sourceSeo.image ?? null,
-			noIndex: sourceSeo.noIndex ?? false,
-		} satisfies ContentSeo,
-	},
-};
-const seo = getSeoMeta(localizedPost, {
+const path = localizedPath("posts", slug, TARGET_LOCALE);
+const seo = getSeoMeta(post, {
 	siteTitle,
 	siteUrl: Astro.url.origin,
-	path: `/en/posts/${slug}`,
-	defaultOgImage: `${Astro.url.origin}/og/posts/${slug}.png?lang=en`,
+	path,
+	defaultOgImage: `${Astro.url.origin}/og/posts/${sourceSlug}.png?lang=en`,
 });
+const content = post.data.content;
 // Excerpt-less posts otherwise ship no <meta name="description">
-const description = seo.description || descriptionFromContent(content, title);
+const description = seo.description || descriptionFromContent(content, post.data.title);
 ---
 
 <Base
@@ -58,28 +45,24 @@ const description = seo.description || descriptionFromContent(content, title);
 	pageTitle={seo.ogTitle}
 	description={description}
 	image={seo.ogImage}
-	canonical={seo.canonical}
+	canonical={isTranslated ? seo.canonical : `${Astro.url.origin}${translations.ja?.path ?? path}`}
 	robots={seo.robots}
 	type="article"
 	publishedTime={post.data.publishedAt?.toISOString() ?? null}
 	modifiedTime={post.data.updatedAt.toISOString()}
 	lang="en"
-	markdownUrl={`/en/posts/${slug}.md`}
-	alternates={[
-		{ hreflang: "ja", path: `/posts/${slug}` },
-		{ hreflang: "en", path: `/en/posts/${slug}` },
-		{ hreflang: "x-default", path: `/posts/${slug}` },
-	]}
+	markdownUrl={`${path}.md`}
+	alternates={alternatesFor(translations)}
 	content={{ collection: "posts", id: post.data.id, slug }}
 >
 	<PostArticle
-		{slug}
-		{title}
+		title={post.data.title}
 		{content}
 		publishDate={post.data.publishedAt?.toISOString().slice(0, 10) ?? null}
 		readingTime={getReadingTime(content)}
 		lang="en"
-		isTranslated={Boolean(post.data.content_en)}
+		{isTranslated}
+		otherLanguageHref={translations.ja?.path ?? null}
 	/>
-	<LikeButton {slug} lang="en" />
+	<LikeButton slug={sourceSlug} lang="en" />
 </Base>

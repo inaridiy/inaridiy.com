@@ -4,77 +4,62 @@ import test from "node:test";
 import {
 	CONTENT_COLLECTIONS,
 	getContentContract,
-	getContentQueryColumns,
+	localizedPath,
 } from "@inaridiy/content-contract";
-import { buildEntryDocs } from "emdash-plugin-search-sync/docs";
+
+const seed = JSON.parse(readFileSync(new URL("../seed/seed.json", import.meta.url), "utf8"));
+const seedFields = new Map(
+	seed.collections.map((collection) => [
+		collection.slug,
+		new Map(collection.fields.map((field) => [field.slug, field])),
+	]),
+);
 
 test("content contract exhaustively covers the CMS collections", () => {
-	assert.deepEqual(CONTENT_COLLECTIONS, ["posts", "pages", "activities"]);
-	assert.deepEqual(getContentContract("posts").translation.strings, {
-		title: "title_en",
-		excerpt: "excerpt_en",
-	});
-	assert.ok(getContentQueryColumns("activities").includes("description_en"));
+	assert.deepEqual([...seedFields.keys()], CONTENT_COLLECTIONS);
 });
 
-test("content contract query columns stay aligned with the seed schema", () => {
-	const seed = JSON.parse(
-		readFileSync(new URL("../seed/seed.json", import.meta.url), "utf8"),
-	);
-	const collections = new Map(
-		seed.collections.map((collection) => [
-			collection.slug,
-			new Set(collection.fields.map((field) => field.slug)),
-		]),
-	);
-
-	assert.deepEqual([...collections.keys()], CONTENT_COLLECTIONS);
+test("translated fields exist in the seed and are translatable", () => {
 	for (const collection of CONTENT_COLLECTIONS) {
-		const seedFields = collections.get(collection);
-		assert.ok(seedFields, `missing seed collection: ${collection}`);
-		for (const field of getContentQueryColumns(collection)) {
-			if (field === "id" || field === "slug") continue;
-			assert.ok(seedFields.has(field), `${collection}.${field} is missing from seed`);
+		const fields = seedFields.get(collection);
+		const contract = getContentContract(collection);
+		for (const slug of [...contract.strings, ...contract.portableText]) {
+			const field = fields.get(slug);
+			assert.ok(field, `${collection}.${slug} is missing from seed`);
+			assert.notEqual(field.translatable, false, `${collection}.${slug} must be translatable`);
+		}
+		for (const slug of contract.portableText) {
+			assert.equal(fields.get(slug).type, "portableText", `${collection}.${slug} type`);
 		}
 	}
 });
 
-test("search projections produce Japanese and English documents for every collection", () => {
-	const pageDocs = buildEntryDocs("pages", "about", {
-		title: "自己紹介",
-		title_en: "About",
-		content: [{ _type: "block", children: [{ _type: "span", text: "日本語" }] }],
-		content_en: [{ _type: "block", children: [{ _type: "span", text: "English" }] }],
-	});
-	assert.deepEqual(
-		pageDocs.map(({ key, url, lang }) => ({ key, url, lang })),
-		[
-			{ key: "pages/about.md", url: "/about", lang: "ja" },
-			{ key: "pages/about.en.md", url: "/en/about", lang: "en" },
-		],
-	);
-
-	const activityDocs = buildEntryDocs("activities", "launch", {
-		title: "公開",
-		title_en: "Launch",
-		date: "2026-07-19T00:00:00.000Z",
-		kind: "site",
-		description: "説明",
-		description_en: "Description",
-	});
-	assert.equal(activityDocs.length, 2);
-	assert.equal(activityDocs[1].url, "/en/activities");
-	assert.match(activityDocs[1].body, /Description/);
+test("every translatable seed field is either translated or deliberately shared", () => {
+	for (const collection of CONTENT_COLLECTIONS) {
+		const contract = getContentContract(collection);
+		const translated = new Set([...contract.strings, ...contract.portableText]);
+		for (const [slug, field] of seedFields.get(collection)) {
+			if (field.translatable === false) continue;
+			assert.ok(
+				translated.has(slug),
+				`${collection}.${slug} is translatable but the translator ignores it — mark it translatable: false or add it to the contract`,
+			);
+		}
+	}
 });
 
-test("an English search document is omitted until at least one shadow field exists", () => {
-	const docs = buildEntryDocs("posts", "draft-translation", {
-		title: "原文",
-		excerpt: "概要",
-		content: [],
-		title_en: "",
-		excerpt_en: "",
-		content_en: [],
-	});
-	assert.deepEqual(docs.map((doc) => doc.lang), ["ja"]);
+test("seed has no legacy *_en shadow fields", () => {
+	for (const [collection, fields] of seedFields) {
+		for (const slug of fields.keys()) {
+			assert.ok(!slug.endsWith("_en"), `${collection}.${slug} is a legacy shadow field`);
+		}
+	}
+});
+
+test("public paths keep Japanese unprefixed and English under /en", () => {
+	assert.equal(localizedPath("posts", "hello", "ja"), "/posts/hello");
+	assert.equal(localizedPath("posts", "hello", "en"), "/en/posts/hello");
+	assert.equal(localizedPath("pages", "about", "en"), "/en/about");
+	assert.equal(localizedPath("pages", "now", "ja"), "/pages/now");
+	assert.equal(localizedPath("activities", "anything", "en"), "/en/activities");
 });

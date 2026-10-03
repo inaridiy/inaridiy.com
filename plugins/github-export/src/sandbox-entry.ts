@@ -7,9 +7,11 @@ import { serializeEntry, COLLECTIONS } from "./format.mjs";
 /**
  * GitHub export plugin (runtime). See ./index.ts for the overview.
  *
- * Runs at priority 300 — after the auto-translator (100) and search-sync
- * (200) — and re-reads the entry via ctx.content.get, so the committed
- * Markdown reflects the final saved state. Uses the exact same file
+ * Runs at priority 70 — before EmDash's aiSearch() hooks (default 100,
+ * errorPolicy "abort"), whose slow AI Search calls would otherwise abort the
+ * chain — and re-reads the entry via ctx.content.get, so the committed
+ * Markdown reflects the final saved state. Only Japanese source entries are
+ * exported. Uses the exact same file
  * format as scripts/content-sync.mjs (shared ./format module), so the
  * reverse git -> CMS push sees no phantom diffs.
  *
@@ -138,6 +140,9 @@ async function exportEntry(collection: string, id: string, ctx: PluginContext): 
 
 	const item = await ctx.content!.get(collection, id);
 	if (!item || !item.slug) return;
+	// Only the Japanese source is mirrored to git; English entries are owned
+	// by the translator plugin.
+	if (item.locale && item.locale !== "ja") return;
 
 	const fields: Record<string, string> = {};
 	for (const field of format.fields) {
@@ -277,7 +282,7 @@ async function settingsBlocks(ctx: PluginContext) {
 export default {
 	hooks: {
 		"content:afterSave": {
-			priority: 300,
+			priority: 70,
 			timeout: 60000,
 			errorPolicy: "continue",
 			handler: async (
@@ -289,7 +294,7 @@ export default {
 			},
 		},
 		"content:afterPublish": {
-			priority: 300,
+			priority: 70,
 			timeout: 60000,
 			errorPolicy: "continue",
 			handler: async (
@@ -301,7 +306,7 @@ export default {
 			},
 		},
 		"content:afterUnpublish": {
-			priority: 300,
+			priority: 70,
 			timeout: 60000,
 			errorPolicy: "continue",
 			handler: async (

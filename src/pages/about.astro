@@ -1,9 +1,13 @@
 ---
+import { SOURCE_LOCALE } from "@inaridiy/content-contract";
 import { getEmDashEntry } from "emdash";
 import ContentPage from "../components/ContentPage.astro";
 import Base from "../layouts/Base.astro";
+import { staticAlternates } from "../utils/i18n";
 
-const { entry: page, cacheHint } = await getEmDashEntry("pages", "about");
+const { entry: page, cacheHint } = await getEmDashEntry("pages", "about", {
+	locale: SOURCE_LOCALE,
+});
 Astro.cache.set(cacheHint);
 ---
 
@@ -12,11 +16,7 @@ Astro.cache.set(cacheHint);
 	description="自己紹介"
 	canonical={`${Astro.url.origin}/about`}
 	markdownUrl="/about.md"
-	alternates={[
-		{ hreflang: "ja", path: "/about" },
-		{ hreflang: "en", path: "/en/about" },
-		{ hreflang: "x-default", path: "/about" },
-	]}
+	alternates={staticAlternates("/about")}
 	content={page ? { collection: "pages", id: page.data.id, slug: "about" } : undefined}
 >
 	{
