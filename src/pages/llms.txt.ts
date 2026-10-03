@@ -23,7 +23,7 @@ export const GET: APIRoute = async ({ cache, site, url }) => {
 
 	const lines: string[] = [llmsHeader(siteTitle, siteTagline), "", "## Posts", ""];
 	for (const post of posts) {
-		const link = `[${post.data.title}](${origin}/posts/${post.id}.md)`;
+		const link = `[${post.data.title}](${origin}/posts/${post.data.slug ?? post.id}.md)`;
 		lines.push(post.data.excerpt ? `- ${link}: ${oneLine(post.data.excerpt)}` : `- ${link}`);
 	}
 

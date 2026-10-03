@@ -21,7 +21,7 @@ export const GET: APIRoute = async ({ cache, site, url }) => {
 			if (!post.data.publishedAt) return null;
 			const pubDate = post.data.publishedAt.toUTCString();
 
-			const postUrl = `${siteUrl}/posts/${post.id}`;
+			const postUrl = `${siteUrl}/posts/${post.data.slug ?? post.id}`;
 			const title = escapeXml(post.data.title || "Untitled");
 			const description = escapeXml(post.data.excerpt || "");
 

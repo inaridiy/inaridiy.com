@@ -10,6 +10,8 @@ import type { PortableTextBlock } from "emdash";
 interface PostEntryLike {
 	id: string;
 	data: {
+		/** Bare slug. `entry.id` carries a locale prefix (`en/…`) outside `ja`. */
+		slug: string | null;
 		title: string;
 		content?: PortableTextBlock[];
 		publishedAt?: Date | null;
@@ -27,7 +29,7 @@ const { posts, lang = "ja", start = 1 } = Astro.props;
 
 const rows = posts.map((post, i) => ({
 	n: start + i,
-	href: localizedPath("posts", post.id, lang),
+	href: localizedPath("posts", post.data.slug ?? post.id, lang),
 	title: post.data.title,
 	date: post.data.publishedAt?.toISOString().slice(0, 10) ?? null,
 	minutes: getReadingTime(post.data.content ?? undefined),

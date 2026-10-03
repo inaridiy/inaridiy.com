@@ -78,7 +78,8 @@ export function postToMarkdown(
 	{ lang, translated = false, originalPath }: PostMarkdownOptions,
 ): string {
 	const { title, excerpt, content } = post.data;
-	const slug = post.id;
+	// `post.id` carries a locale prefix (`en/…`) outside the default locale
+	const slug = post.data.slug ?? post.id;
 	const date = post.data.publishedAt?.toISOString().slice(0, 10);
 	const categories = (post.data.terms?.category ?? []).map((term) => term.label);
 	const tags = (post.data.terms?.tag ?? []).map((term) => term.label);

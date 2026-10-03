@@ -19,7 +19,7 @@ export const GET: APIRoute = async ({ cache, site, url }) => {
 
 	const sections = posts.map((post) => {
 		const date = post.data.publishedAt?.toISOString().slice(0, 10);
-		const meta = [`- Source: ${origin}/posts/${post.id}`];
+		const meta = [`- Source: ${origin}/posts/${post.data.slug ?? post.id}`];
 		if (date) meta.push(`- Date: ${date}`);
 		return [`# ${post.data.title}`, "", ...meta, "", postBodyMarkdown(post.data.content)].join(
 			"\n",

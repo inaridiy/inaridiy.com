@@ -18,7 +18,7 @@ const title = page?.data.title || "About";
 	canonical={`${Astro.url.origin}/en/about`}
 	lang="en"
 	alternates={staticAlternates("/about")}
-	content={page ? { collection: "pages", id: page.data.id, slug: page.id } : undefined}
+	content={page ? { collection: "pages", id: page.data.id, slug: page.data.slug ?? page.id } : undefined}
 >
 	{
 		page ? (
