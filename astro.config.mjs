@@ -71,9 +71,9 @@ export default defineConfig({
 				// newsletter mail live in the newsletter outbox.
 				cloudflareEmail({ from: { email: "noreply@inaridiy.com", name: "inaridiy.com" } }),
 			],
-			// Runner for marketplace-installed (sandboxed) plugins
+			// Runner for registry-installed (sandboxed) plugins. The hosted
+			// registry is the default catalog once a runner is configured.
 			sandboxRunner: sandbox(),
-			marketplace: "https://marketplace.emdashcms.com",
 		}),
 	],
 	fonts: [
