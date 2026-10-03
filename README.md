@@ -45,7 +45,7 @@ pnpm build                # production build
 pnpm check                # 上記の検査 + build
 pnpm content:pull         # CMS → content/**/*.md
 pnpm content:push         # content/**/*.md → CMS
-pnpm run deploy           # build + wrangler deploy (通常はCIがmainから実行)
+pnpm run deploy           # build + wrangler deploy (通常はCloudflare Workers Buildsがmainから実行)
 ```
 
 ## 手動確認
@@ -176,7 +176,7 @@ src/utils/i18n.ts           translation group経由のlink / hreflang解決
 src/utils/search.ts         /search のAI Search呼び出し
 src/components/             JA/EN共有view、header/footer
 tests/                      pure contract / failure-path tests
-.github/workflows/          CI (check + main deploy) + content sync
+.github/workflows/          CI (check) + content sync。deployはCloudflare Workers Builds
 ```
 
 運用上の不変条件と障害時の挙動は [docs/specs/2026-10-03-native-i18n.md](docs/specs/2026-10-03-native-i18n.md) (現行) と [docs/specs/2026-07-19-content-pipelines.md](docs/specs/2026-07-19-content-pipelines.md) (一部置き換え済み) に記録している。

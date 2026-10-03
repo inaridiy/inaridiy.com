@@ -41,21 +41,34 @@ pnpm exec wrangler secret put GITHUB_EXPORT_TOKEN
 
 | Secret | 用途 |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | `ci.yml` のdeploy job。dashboardのAPI Tokensで「Edit Cloudflare Workers」templateから作り、対象をこのaccountと `inaridiy.com` zoneに絞る。deployが権限不足で失敗したら、errorに出たresource (D1、AI Search等) の権限を足す |
-| `CLOUDFLARE_ACCOUNT_ID` | 同上 |
 | `EMDASH_URL` / `EMDASH_REFRESH_TOKEN` | `content-sync.yml` |
 
 ```bash
-gh secret set CLOUDFLARE_API_TOKEN          # 値は対話入力
-gh secret set CLOUDFLARE_ACCOUNT_ID --body <account id>
 npx emdash login --url https://inaridiy.com # EMDASH_REFRESH_TOKEN の取得元 (90日で失効)
 ```
 
-deploy jobは `production` environmentで動く。承認を挟みたい場合はGitHubのenvironment protection rulesで設定する。
+Cloudflare API tokenはGitHubに置かない。deployはCloudflare Workers Buildsが行う (次節)。
 
 ## Validate and deploy
 
-通常は `main` へのpushで `.github/workflows/ci.yml` が `pnpm check` の後にdeployする (`content/**` だけの変更ではdeployしない)。手元からdeployする場合:
+`main` へのpushでCloudflare Workers Buildsが `pnpm check` (型・test・build・bundle budget) を実行し、通ったときだけ `wrangler deploy` する。GitHub Actionsの `ci.yml` はPRとpushのcheckだけを担当する。
+
+Workers Buildsの設定 (dashboard → Workers & Pages → `inaridiy-com` → Settings → Build):
+
+| 項目 | 値 |
+| --- | --- |
+| Git repository | `inaridiy/inaridiy.com` |
+| Production branch | `main` |
+| Root directory | `/` |
+| Build command | `pnpm check` |
+| Deploy command | `pnpm exec wrangler deploy` |
+| Non-production branch builds | 無効 (PRはGitHub Actionsでcheck) |
+| Build watch paths | include `*`、exclude `content/*` (CMS → git同期commitではdeployしない) |
+| Build variables | `PNPM_VERSION=11.9.0` (build imageの既定はpnpm 10)。Node.jsは `.node-version` |
+
+Worker名 (`inaridiy-com`) は `wrangler.jsonc` の `name` と一致している必要がある。build失敗時はdashboardのBuild履歴でlogを見る。
+
+手元からdeployする場合 (緊急時):
 
 ```bash
 pnpm check
