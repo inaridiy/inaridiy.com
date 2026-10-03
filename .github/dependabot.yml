@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Matches pnpm's minimumReleaseAge supply-chain cooldown for non-EmDash deps.
+    cooldown:
+      default-days: 1
+    groups:
+      emdash:
+        patterns: ["emdash", "@emdash-cms/*"]
+      astro-cloudflare:
+        patterns: ["astro", "@astrojs/*", "wrangler", "@cloudflare/*"]
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
