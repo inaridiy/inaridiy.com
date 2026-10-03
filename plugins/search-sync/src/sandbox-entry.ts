@@ -1,11 +1,11 @@
 import { env } from "cloudflare:workers";
+import { isContentCollection } from "@inaridiy/content-contract";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 import {
 	buildEntryDocs,
 	docMetadata,
 	hashContent,
 	renderDoc,
-	INDEXED_COLLECTIONS,
 } from "./docs";
 
 /**
@@ -17,32 +17,15 @@ import {
  * in the same request.
  */
 
-/** Structural view of the AiSearchInstance binding (kept local so the
- * plugin package doesn't depend on the site's generated types). */
-interface AiSearchLike {
-	items: {
-		upload(
-			name: string,
-			content: string,
-			options?: { metadata?: Record<string, unknown> },
-		): Promise<unknown>;
-		list(params?: { page?: number; per_page?: number }): Promise<{
-			result: Array<{ id: string; key: string; metadata?: Record<string, unknown> }>;
-			result_info?: { count: number; page: number; per_page: number; total_count: number };
-		}>;
-		delete(itemId: string): Promise<void>;
-	};
-}
-
-function getSearchBinding(): AiSearchLike | undefined {
-	return (env as { SEARCH?: AiSearchLike }).SEARCH;
+function getSearchBinding(): AiSearchInstance | undefined {
+	return (env as Partial<Env>).SEARCH;
 }
 
 function isIndexedCollection(collection: string): boolean {
-	return (INDEXED_COLLECTIONS as readonly string[]).includes(collection);
+	return isContentCollection(collection);
 }
 
-async function listAllItems(search: AiSearchLike) {
+async function listAllItems(search: AiSearchInstance) {
 	const items: Array<{ id: string; key: string; metadata?: Record<string, unknown> }> = [];
 	let page = 1;
 	for (;;) {
@@ -58,7 +41,7 @@ async function listAllItems(search: AiSearchLike) {
 }
 
 async function deleteItems(
-	search: AiSearchLike,
+	search: AiSearchInstance,
 	ctx: PluginContext,
 	match: (item: { key: string; metadata?: Record<string, unknown> }) => boolean,
 ): Promise<number> {

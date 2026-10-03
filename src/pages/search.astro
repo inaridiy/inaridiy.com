@@ -5,13 +5,21 @@ import { env } from "cloudflare:workers";
 import { search } from "emdash";
 import Base from "../layouts/Base.astro";
 
-const query = Astro.url.searchParams.get("q")?.trim() || "";
+const MAX_QUERY_CHARS = 300;
+const rawQuery = Astro.url.searchParams.get("q")?.trim() || "";
+const queryTooLong = rawQuery.length > MAX_QUERY_CHARS;
+const query = queryTooLong ? rawQuery.slice(0, MAX_QUERY_CHARS) : rawQuery;
 const mode = Astro.url.searchParams.get("mode") === "ai" ? "ai" : "keyword";
+
+// Never edge-cache search: responses are per-visitor (rate-limit cookie) and
+// without an explicit header the Workers Cache would apply heuristic
+// freshness (~2h) to cookie-less repeat visits.
+Astro.response.headers.set("Cache-Control", "private, no-store");
 
 // AI Search binding. Hybrid (vector + keyword/trigram) search handles
 // Japanese properly — EmDash's SQLite FTS can't tokenize CJK, so it is
 // only the fallback when the binding is absent (plain local dev).
-const searchBinding = (env as { SEARCH?: AiSearchInstance }).SEARCH;
+const searchBinding = (env as Partial<Env>).SEARCH;
 
 interface ResultRow {
 	url: string;
@@ -24,8 +32,27 @@ interface ResultRow {
 
 let aiAnswer: string | null = null;
 let results: ResultRow[] = [];
-let searchError: string | null = null;
+let searchIssue: "query_too_long" | "rate_limited" | "unavailable" | null = queryTooLong
+	? "query_too_long"
+	: null;
 let usedFts = false;
+
+function visitorRateLimitKey(): string {
+	const cookieName = "inaridiy_search_visitor";
+	const current = Astro.cookies.get(cookieName)?.value;
+	const visitor =
+		current && /^[0-9a-f-]{36}$/i.test(current) ? current : crypto.randomUUID();
+	if (visitor !== current) {
+		Astro.cookies.set(cookieName, visitor, {
+			httpOnly: true,
+			sameSite: "lax",
+			secure: Astro.url.protocol === "https:",
+			path: "/",
+			maxAge: 365 * 24 * 60 * 60,
+		});
+	}
+	return `ai-search:${visitor}`;
+}
 
 function chunksToRows(
 	chunks: Array<{ score: number; text: string; item?: { metadata?: Record<string, unknown> } }>,
@@ -47,51 +74,88 @@ function chunksToRows(
 	return rows;
 }
 
-if (query && searchBinding) {
-	try {
-		if (mode === "ai") {
-			const [chat, retrieval] = await Promise.all([
-				searchBinding.chatCompletions({
-					messages: [{ role: "user", content: query }],
-				}),
-				searchBinding.search({
-					query,
-					ai_search_options: { retrieval: { max_num_results: 8 } },
-				}),
-			]);
-			aiAnswer = chat.choices?.[0]?.message?.content ?? null;
-			results = chunksToRows([...(chat.chunks ?? []), ...(retrieval.chunks ?? [])]).slice(0, 8);
-		} else {
-			const retrieval = await searchBinding.search({
-				query,
-				ai_search_options: { retrieval: { max_num_results: 12 } },
+if (query && !queryTooLong && searchBinding) {
+	const limiter = (env as Partial<Env>).AI_RATE_LIMITER;
+	if (limiter) {
+		try {
+			const result = await limiter.limit({ key: visitorRateLimitKey() });
+			if (!result.success) searchIssue = "rate_limited";
+		} catch (error) {
+			searchIssue = "unavailable";
+			console.error({
+				event: "search_rate_limit_failed",
+				error: error instanceof Error ? error.message : String(error),
 			});
-			results = chunksToRows(retrieval.chunks ?? []);
 		}
-	} catch (error) {
-		searchError = error instanceof Error ? error.message : String(error);
+	}
+
+	if (!searchIssue) {
+		try {
+			if (mode === "ai") {
+				const [chat, retrieval] = await Promise.all([
+					searchBinding.chatCompletions({
+						messages: [{ role: "user", content: query }],
+					}),
+					searchBinding.search({
+						query,
+						ai_search_options: { retrieval: { max_num_results: 8 } },
+					}),
+				]);
+				aiAnswer = chat.choices?.[0]?.message?.content ?? null;
+				results = chunksToRows([...(chat.chunks ?? []), ...(retrieval.chunks ?? [])]).slice(
+					0,
+					8,
+				);
+			} else {
+				const retrieval = await searchBinding.search({
+					query,
+					ai_search_options: { retrieval: { max_num_results: 12 } },
+				});
+				results = chunksToRows(retrieval.chunks ?? []);
+			}
+		} catch (error) {
+			searchIssue = "unavailable";
+			console.error({
+				event: "ai_search_request_failed",
+				mode,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 }
 
 // Fallback: EmDash full-text search (local dev / hybrid failure)
-if (query && (!searchBinding || searchError)) {
-	usedFts = true;
-	const { items } = await search(query, {
-		collections: ["posts", "pages", "activities"],
-		limit: 30,
-	});
-	results = items.map((item) => ({
-		url:
-			item.collection === "pages"
-				? (item.slug ?? item.id) === "about"
-					? "/about"
-					: `/pages/${item.slug ?? item.id}`
-				: item.collection === "activities"
-					? "/activities"
-					: `/posts/${item.slug ?? item.id}`,
-		title: item.title ?? "Untitled",
-		snippetHtml: item.snippet ?? undefined,
-	}));
+if (
+	query &&
+	!queryTooLong &&
+	(!searchBinding || searchIssue === "rate_limited" || searchIssue === "unavailable")
+) {
+	try {
+		usedFts = true;
+		const { items } = await search(query, {
+			collections: ["posts", "pages", "activities"],
+			limit: 30,
+		});
+		results = items.map((item) => ({
+			url:
+				item.collection === "pages"
+					? (item.slug ?? item.id) === "about"
+						? "/about"
+						: `/pages/${item.slug ?? item.id}`
+					: item.collection === "activities"
+						? "/activities"
+						: `/posts/${item.slug ?? item.id}`,
+			title: item.title ?? "Untitled",
+			snippetHtml: item.snippet ?? undefined,
+		}));
+	} catch (error) {
+		searchIssue = "unavailable";
+		results = [];
+		console.error({
+			event: "fts_search_failed",
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
 }
 ---
 
@@ -114,11 +178,27 @@ if (query && (!searchBinding || searchError)) {
 	</form>
 
 	{
-		usedFts && query && (
+		searchIssue === "query_too_long" && (
+			<p class="notice">検索語は{MAX_QUERY_CHARS}文字以内で入力してください。</p>
+		)
+	}
+	{
+		searchIssue === "rate_limited" && (
 			<p class="notice">
-				簡易検索(全文一致)で表示しています。
-				{searchError && ` AI 検索エラー: ${searchError}`}
+				検索回数が多すぎます。1分ほど待ってから再度お試しください。簡易検索の結果を表示しています。
 			</p>
+		)
+	}
+	{
+		searchIssue === "unavailable" && (
+			<p class="notice">
+				AI検索を一時的に利用できません。簡易検索の結果を表示しています。
+			</p>
+		)
+	}
+	{
+		usedFts && query && !searchIssue && (
+			<p class="notice">簡易検索(全文一致)で表示しています。</p>
 		)
 	}
 

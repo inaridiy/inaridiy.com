@@ -11,8 +11,10 @@ export const GET: APIRoute = async (context) => {
 	const slug = decodeSlug(context.params.slug);
 	if (!slug) return new Response("Not found", { status: 404 });
 
-	const { entry: post } = await getEmDashEntry("posts", slug);
+	const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
 	if (!post) return new Response("Not found", { status: 404 });
+	context.cache.set(cacheHint);
+	context.cache.set({ maxAge: 3600, swr: 86400 });
 
 	const lang = context.url.searchParams.get("lang") === "en" ? "en" : "ja";
 	const title =

@@ -1,79 +1,38 @@
 ---
 import { getEmDashEntry } from "emdash";
-import { PortableText } from "emdash/ui";
+import ContentPage from "../../components/ContentPage.astro";
 import Base from "../../layouts/Base.astro";
 
 const { entry: page, cacheHint } = await getEmDashEntry("pages", "about");
-if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
-
+Astro.cache.set(cacheHint);
 const title = page?.data.title_en || page?.data.title || "About";
 const content = page?.data.content_en || page?.data.content;
-const isTranslated = Boolean(page?.data.content_en);
 ---
 
 <Base
-	title={title}
+	{title}
 	description="About inaridiy"
+	canonical={`${Astro.url.origin}/en/about`}
 	lang="en"
 	alternates={[
 		{ hreflang: "ja", path: "/about" },
 		{ hreflang: "en", path: "/en/about" },
 		{ hreflang: "x-default", path: "/about" },
 	]}
+	content={page ? { collection: "pages", id: page.data.id, slug: "about" } : undefined}
 >
 	{
 		page ? (
-			<article class="page">
-				<h1 class="page-title">{title}</h1>
-				{!isTranslated && (
-					<p class="translation-note">
-						English translation is not available yet — showing the Japanese
-						original below.
-					</p>
-				)}
-				<div class="page-content">
-					<PortableText value={content} />
-				</div>
-			</article>
+			<ContentPage
+				{title}
+				{content}
+				lang="en"
+				isTranslated={Boolean(page.data.content_en)}
+			/>
 		) : (
 			<p class="empty">No about page yet.</p>
 		)
 	}
 </Base>
 
-<style>
-	.page {
-		max-width: var(--content-width);
-	}
-
-	.page-title {
-		font-size: var(--font-size-xl);
-		margin-bottom: var(--spacing-6);
-	}
-
-	.translation-note {
-		font-size: var(--font-size-xs);
-		color: var(--color-muted);
-		border-left: 2px solid var(--color-border);
-		padding-left: var(--spacing-3);
-		margin-bottom: var(--spacing-4);
-	}
-
-	.page-content {
-		line-height: var(--leading-relaxed);
-	}
-
-	.page-content :global(p) {
-		margin-bottom: 1.4em;
-	}
-
-	.page-content :global(h2) {
-		font-size: var(--font-size-lg);
-		margin-top: 2em;
-		margin-bottom: 0.6em;
-	}
-
-	.empty {
-		color: var(--color-text-secondary);
-	}
-</style>
+<style>.empty { color: var(--color-text-secondary); }</style>

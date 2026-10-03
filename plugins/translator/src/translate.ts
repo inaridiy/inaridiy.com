@@ -1,7 +1,8 @@
 /**
- * Pure translation helpers: Portable Text traversal, source hashing, and
- * model-reply parsing. No EmDash imports so this stays testable and
- * sandbox-safe (Web APIs only).
+ * Pure translation helpers: Portable Text traversal, source hashing,
+ * model-reply parsing, and the plugin<->workflow job contract. No EmDash
+ * imports so this stays testable and importable from the Worker entry
+ * (TranslatorWorkflow) as well as the plugin sandbox entry.
  */
 
 interface PortableTextSpanLike {
@@ -60,43 +61,146 @@ export function hashSource(input: string): string {
 	return (hash >>> 0).toString(16);
 }
 
+/** Hard per-segment cap: longer segments are rejected as untranslatable. */
+export const MAX_INPUT_CHARS = 8_000;
+
+/**
+ * One segment per call, plain-text reply. Batched JSON-array replies proved
+ * unenforceable on real model output (Gemma 4 splits newline-carrying
+ * segments into extra array items), and a plain string has no cardinality
+ * to get wrong.
+ */
 export const SYSTEM_PROMPT = [
 	"You are a professional Japanese-to-English translator for a technical blog.",
-	"The user sends a JSON array of Japanese strings.",
-	"Translate each string into natural, concise English.",
-	"Keep code identifiers, product names, URLs, and inline formatting untouched.",
-	"Reply with ONLY a JSON array of the translated strings — same length, same order, no commentary, no code fences.",
+	"Translate the user's message from Japanese into natural, concise English.",
+	"Keep code identifiers, product names, URLs, inline formatting, and untranslatable text unchanged.",
+	"Reply with ONLY the translated text — no quotes around it, no commentary, no code fences.",
 ].join(" ");
 
-/** Split a batch into chunks so a single model call never needs an
- * excessively long output (long posts overflow max output tokens). */
-export function chunkBatch<T>(items: T[], size: number): T[][] {
-	const chunks: T[][] = [];
-	for (let i = 0; i < items.length; i += size) {
-		chunks.push(items.slice(i, i + size));
-	}
-	return chunks;
+/**
+ * Normalize one model reply: unwrap a stray code fence, reject empties, and
+ * transplant the source's edge whitespace (Portable Text soft breaks live in
+ * span-trailing newlines the model tends to eat).
+ */
+export function cleanTranslatedSegment(source: string, raw: string): string {
+	let text = raw.trim();
+	const fenced = text.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
+	if (fenced) text = fenced[1].trim();
+	if (text === "") throw new Error("Model reply is empty");
+	const lead = source.match(/^\s*/)?.[0] ?? "";
+	const trail = source.match(/\s*$/)?.[0] ?? "";
+	return lead + text + trail;
 }
 
-/** Extract a JSON array from an LLM reply, tolerating code fences and prose. */
-export function parseTranslatedArray(raw: string, expectedLength: number): string[] {
-	let text = raw.trim();
-	const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-	if (fenced) text = fenced[1].trim();
-	if (!text.startsWith("[")) {
-		const start = text.indexOf("[");
-		const end = text.lastIndexOf("]");
-		if (start === -1 || end === -1 || end < start) {
-			throw new Error("Model reply contains no JSON array");
-		}
-		text = text.slice(start, end + 1);
-	}
-	const parsed: unknown = JSON.parse(text);
-	if (!Array.isArray(parsed)) throw new Error("Model reply is not a JSON array");
-	if (parsed.length !== expectedLength) {
-		throw new Error(
-			`Model returned ${parsed.length} items, expected ${expectedLength}`,
-		);
-	}
-	return parsed.map((item) => String(item ?? ""));
+/* ------------------------------------------------------------------ */
+/* Workers AI response parsing                                         */
+/* ------------------------------------------------------------------ */
+
+export interface ProviderMetadata {
+	shape: "legacy" | "chat" | "unknown";
+	finishReason?: string;
+	usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+	promptFeedback?: string;
+	responseChars?: number;
 }
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function firstChoice(value: unknown): Record<string, unknown> | undefined {
+	return Array.isArray(value) && isRecord(value[0]) ? value[0] : undefined;
+}
+
+export function readChoiceContent(value: unknown): unknown {
+	const message = firstChoice(value)?.message;
+	return isRecord(message) ? message.content : undefined;
+}
+
+function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+	return typeof record[key] === "number" ? record[key] : undefined;
+}
+
+export function readProviderMetadata(result: Record<string, unknown>): ProviderMetadata {
+	const choice = firstChoice(result.choices);
+	const finishReason =
+		typeof choice?.finish_reason === "string"
+			? choice.finish_reason
+			: typeof result.finish_reason === "string"
+				? result.finish_reason
+				: undefined;
+	const usage = isRecord(result.usage) ? result.usage : undefined;
+	const response =
+		typeof result.response === "string" ? result.response : readChoiceContent(result.choices);
+	const promptFeedback = result.prompt_feedback;
+	return {
+		shape:
+			typeof result.response === "string"
+				? "legacy"
+				: Array.isArray(result.choices)
+					? "chat"
+					: "unknown",
+		finishReason,
+		usage: usage
+			? {
+					promptTokens:
+						optionalNumber(usage, "prompt_tokens") ?? optionalNumber(usage, "promptTokens"),
+					completionTokens:
+						optionalNumber(usage, "completion_tokens") ??
+						optionalNumber(usage, "completionTokens"),
+					totalTokens:
+						optionalNumber(usage, "total_tokens") ?? optionalNumber(usage, "totalTokens"),
+				}
+			: undefined,
+		promptFeedback:
+			promptFeedback === undefined
+				? undefined
+				: JSON.stringify(promptFeedback).slice(0, 300),
+		responseChars: typeof response === "string" ? response.length : undefined,
+	};
+}
+
+/* ------------------------------------------------------------------ */
+/* Plugin <-> Workflow job contract                                    */
+/*                                                                     */
+/* The afterSave/afterPublish hook only enqueues a TranslatorWorkflow  */
+/* instance; the workflow calls back into these two plugin routes to   */
+/* read the translation plan and to persist the result. Both sides     */
+/* import this module so the contract cannot drift.                    */
+/* ------------------------------------------------------------------ */
+
+/** Workflow instance params. IDs and proof-of-origin only — never content. */
+export interface TranslationJobParams {
+	collection: string;
+	id: string;
+	/** Fingerprint of the source fields the job was enqueued for. */
+	sourceHash: string;
+	/** Token of the KV in-flight lease this job owns. */
+	leaseToken: string;
+	/** Shared secret minted by the plugin; authenticates route callbacks. */
+	secret: string;
+}
+
+export type PlanResponse =
+	| { ok: true; batch: string[]; model: string; gatewayId: string }
+	| { ok: false; unauthorized?: boolean; reason?: string };
+
+export interface CompleteRequest extends TranslationJobParams {
+	/** Present on success: one translation per plan batch entry. */
+	translations?: string[];
+	providerRuns?: ProviderMetadata[];
+	/** Present when the workflow gave up; triggers the stale-target clear. */
+	error?: string;
+}
+
+export interface CompleteResponse {
+	ok: boolean;
+	unauthorized?: boolean;
+	reason?: string;
+}
+
+/** Route paths the workflow calls on the SELF service binding. */
+export const TRANSLATOR_API = {
+	plan: "/_emdash/api/plugins/auto-translator/plan",
+	complete: "/_emdash/api/plugins/auto-translator/complete",
+} as const;

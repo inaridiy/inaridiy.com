@@ -1,24 +1,25 @@
-import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
+import { env } from "cloudflare:workers";
 import type { StorageCollection } from "emdash";
+import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 
 /**
- * Newsletter plugin (runtime). See ./index.ts for the overview.
+ * Double-opt-in subscriptions and resumable new-post campaigns.
  *
- * Flow:
- *   subscribe (public POST {email})  -> pending + confirm email
- *   confirm   (public POST {token})  -> status confirmed
- *   unsubscribe (public POST {token}) -> record deleted
- *   content:afterPublish (posts)     -> notify confirmed subscribers ONCE
- *                                       per post (KV state:notified:<id>)
- *
- * Abuse guards: email format validation, resend throttle (one confirm
- * email per address per 24h), silent success responses (no address
- * enumeration).
+ * A publish hook only records a campaign. A bounded EmDash cron sweep creates
+ * per-subscriber outbox rows and hands each email to the email-sender plugin,
+ * which persists it to Cloudflare Queues. A campaign is complete only after
+ * every eligible subscriber has a terminal delivery state.
  */
 
 const SITE_URL = "https://inaridiy.com";
 const SITE_NAME = "inaridiy.com";
+const CAMPAIGN_CRON = "newsletter-dispatch";
+const CAMPAIGN_SCHEDULE = "*/5 * * * *";
+const SUBSCRIBER_PAGE_SIZE = 50;
+const RETRY_PAGE_SIZE = 20;
+const MAX_ENQUEUE_ATTEMPTS = 8;
 const RESEND_THROTTLE_MS = 24 * 60 * 60 * 1000;
+const CONFIRM_LEASE_MS = 5 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Subscriber {
@@ -27,11 +28,54 @@ interface Subscriber {
 	token: string;
 	createdAt: string;
 	confirmSentAt?: string;
+	confirmLeaseUntil?: string;
 	confirmedAt?: string;
+}
+
+type CampaignStatus = "pending" | "running" | "complete" | "partial";
+
+interface Campaign {
+	postId: string;
+	slug: string;
+	title: string;
+	excerpt: string;
+	status: CampaignStatus;
+	subscriberCutoff: string;
+	subscriberCursor?: string;
+	enumerationComplete: boolean;
+	createdAt: string;
+	updatedAt: string;
+	queued: number;
+	failed: number;
+	dead: number;
+	skipped: number;
+}
+
+type DeliveryStatus = "pending" | "failed" | "queued" | "dead" | "skipped";
+
+interface Delivery {
+	campaignId: string;
+	subscriberId: string;
+	to: string;
+	unsubscribeToken: string;
+	status: DeliveryStatus;
+	attempts: number;
+	nextAttemptAt: string;
+	createdAt: string;
+	updatedAt: string;
+	lastError?: string;
 }
 
 function subscribers(ctx: PluginContext): StorageCollection<Subscriber> {
 	return ctx.storage.subscribers as StorageCollection<Subscriber>;
+}
+
+function campaigns(ctx: PluginContext): StorageCollection<Campaign> {
+	return ctx.storage.campaigns as StorageCollection<Campaign>;
+}
+
+function deliveries(ctx: PluginContext): StorageCollection<Delivery> {
+	return ctx.storage.deliveries as StorageCollection<Delivery>;
 }
 
 async function findByEmail(ctx: PluginContext, email: string) {
@@ -45,6 +89,30 @@ async function findByToken(ctx: PluginContext, token: string) {
 	return result.items[0] ?? null;
 }
 
+function parseEmail(input: unknown): string | null {
+	if (typeof input !== "string") return null;
+	const email = input.trim().toLowerCase();
+	return EMAIL_RE.test(email) && email.length <= 254 ? email : null;
+}
+
+async function sha256(value: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function checkSubscriptionRateLimit(
+	email: string,
+): Promise<"allowed" | "limited" | "unavailable"> {
+	const limiter = (env as Partial<Env>).NEWSLETTER_RATE_LIMITER;
+	if (!limiter) return "allowed"; // Local dev without Wrangler bindings.
+	try {
+		const result = await limiter.limit({ key: `newsletter:${await sha256(email)}` });
+		return result.success ? "allowed" : "limited";
+	} catch {
+		return "unavailable";
+	}
+}
+
 async function sendConfirmEmail(ctx: PluginContext, subscriber: Subscriber): Promise<void> {
 	await ctx.email!.send({
 		to: subscriber.email,
@@ -53,104 +121,292 @@ async function sendConfirmEmail(ctx: PluginContext, subscriber: Subscriber): Pro
 			`${SITE_NAME} の新着記事メールの購読手続きです。`,
 			"",
 			"以下のリンクを開くと購読が完了します:",
-			`${SITE_URL}/newsletter/confirm?token=${subscriber.token}`,
+			`${SITE_URL}/newsletter/confirm?token=${encodeURIComponent(subscriber.token)}`,
 			"",
 			"心当たりがない場合はこのメールを無視してください。",
 		].join("\n"),
 	});
 }
 
-/* ------------------------------------------------------------------ */
+async function ensureCampaignCron(ctx: PluginContext): Promise<void> {
+	if (ctx.cron) {
+		await ctx.cron.schedule(CAMPAIGN_CRON, { schedule: CAMPAIGN_SCHEDULE });
+		return;
+	}
+	// emdash 0.28.x never wires ctx.cron on Cloudflare production builds
+	// (virtual:emdash/scheduler exports `createScheduler = null` there, and the
+	// context factory only creates CronAccess when a scheduler exists), even
+	// though the Worker's minute cron trigger DOES execute due rows in
+	// _emdash_cron_tasks. Without this fallback no campaign ever dispatches.
+	// TRUSTED-ONLY: registers the task directly through the D1 binding,
+	// mirroring CronAccessImpl.schedule's upsert (never clobbers a running
+	// task). Remove once emdash >= 0.31.0, where ctx.cron is always wired.
+	const db = (env as Partial<Env>).DB;
+	if (!db) {
+		ctx.log.warn(
+			"newsletter: cron scheduler unavailable and no DB binding; campaigns will not dispatch",
+		);
+		return;
+	}
+	try {
+		await db
+			.prepare(
+				`INSERT INTO _emdash_cron_tasks (id, plugin_id, task_name, schedule, is_oneshot, data, next_run_at, status, enabled)
+				VALUES (?1, ?2, ?3, ?4, 0, NULL, ?5, 'idle', 1)
+				ON CONFLICT (plugin_id, task_name) DO UPDATE SET
+					schedule = ?4,
+					is_oneshot = 0,
+					status = CASE WHEN _emdash_cron_tasks.status = 'running' THEN 'running' ELSE 'idle' END,
+					locked_at = CASE WHEN _emdash_cron_tasks.status = 'running' THEN _emdash_cron_tasks.locked_at ELSE NULL END,
+					enabled = 1`,
+			)
+			.bind(
+				crypto.randomUUID(),
+				ctx.plugin.id,
+				CAMPAIGN_CRON,
+				CAMPAIGN_SCHEDULE,
+				new Date().toISOString(),
+			)
+			.run();
+		ctx.log.info("newsletter: campaign cron registered via D1 fallback (ctx.cron unavailable)");
+	} catch (error) {
+		ctx.log.error(
+			`newsletter: campaign cron registration failed: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+}
 
 interface ContentEvent {
 	content: Record<string, unknown>;
 	collection: string;
 }
 
-async function notifySubscribers(event: ContentEvent, ctx: PluginContext): Promise<void> {
+async function createCampaign(event: ContentEvent, ctx: PluginContext): Promise<void> {
 	if (event.collection !== "posts") return;
 	const id = typeof event.content.id === "string" ? event.content.id : null;
-	if (!id) return;
-
-	// Notify exactly once per post, ever (edits/re-publishes stay silent)
-	const notifiedKey = `state:notified:${id}`;
-	if (await ctx.kv.get<boolean>(notifiedKey)) return;
+	if (!id || (await campaigns(ctx).exists(id))) return;
 
 	const item = await ctx.content!.get("posts", id);
 	if (!item || item.status !== "published" || !item.slug) return;
+	const now = new Date().toISOString();
+	await campaigns(ctx).put(id, {
+		postId: id,
+		slug: item.slug,
+		title: typeof item.data.title === "string" ? item.data.title : item.slug,
+		excerpt: typeof item.data.excerpt === "string" ? item.data.excerpt : "",
+		status: "pending",
+		subscriberCutoff: now,
+		enumerationComplete: false,
+		createdAt: now,
+		updatedAt: now,
+		queued: 0,
+		failed: 0,
+		dead: 0,
+		skipped: 0,
+	});
+	await ensureCampaignCron(ctx);
+	ctx.log.info(`newsletter: campaign created for ${item.slug}`);
+}
 
-	if (!ctx.email) {
-		ctx.log.warn("newsletter: email pipeline unavailable (no provider selected)");
+function retryAt(attempts: number): string {
+	const delayMinutes = Math.min(60, 2 ** Math.min(Math.max(attempts - 1, 0), 6));
+	return new Date(Date.now() + delayMinutes * 60_000).toISOString();
+}
+
+function deliveryId(campaignId: string, subscriberId: string): string {
+	return `${campaignId}:${subscriberId}`;
+}
+
+async function enqueueDelivery(
+	id: string,
+	delivery: Delivery,
+	campaign: Campaign,
+	ctx: PluginContext,
+): Promise<void> {
+	const now = new Date().toISOString();
+	const subscriber = await subscribers(ctx).get(delivery.subscriberId);
+	if (
+		!subscriber ||
+		subscriber.status !== "confirmed" ||
+		!subscriber.confirmedAt ||
+		subscriber.confirmedAt > campaign.subscriberCutoff
+	) {
+		await deliveries(ctx).put(id, {
+			...delivery,
+			to: "",
+			unsubscribeToken: "",
+			status: "skipped",
+			updatedAt: now,
+		});
 		return;
 	}
 
-	const title = typeof item.data.title === "string" ? item.data.title : item.slug;
-	const excerpt = typeof item.data.excerpt === "string" ? item.data.excerpt : "";
-	const postUrl = `${SITE_URL}/posts/${item.slug}`;
-
-	let sent = 0;
-	let failed = 0;
-	let cursor: string | undefined;
-	do {
-		const page = await subscribers(ctx).query({
-			where: { status: "confirmed" },
-			limit: 100,
-			cursor,
+	if (!ctx.email) throw new Error("newsletter email pipeline unavailable");
+	const attempts = delivery.attempts + 1;
+	try {
+		await ctx.email.send({
+			to: delivery.to,
+			subject: `${campaign.title} — ${SITE_NAME}`,
+			text: [
+				campaign.title,
+				"",
+				...(campaign.excerpt ? [campaign.excerpt, ""] : []),
+				`読む: ${SITE_URL}/posts/${campaign.slug}`,
+				"",
+				"--",
+				`配信停止: ${SITE_URL}/newsletter/unsubscribe?token=${encodeURIComponent(delivery.unsubscribeToken)}`,
+			].join("\n"),
 		});
-		for (const { data: subscriber } of page.items) {
-			try {
-				await ctx.email.send({
-					to: subscriber.email,
-					subject: `${title} — ${SITE_NAME}`,
-					text: [
-						title,
-						"",
-						...(excerpt ? [excerpt, ""] : []),
-						`読む: ${postUrl}`,
-						"",
-						"--",
-						`配信停止: ${SITE_URL}/newsletter/unsubscribe?token=${subscriber.token}`,
-					].join("\n"),
-				});
-				sent++;
-			} catch (error) {
-				failed++;
-				ctx.log.error(
-					`newsletter: send failed for ${subscriber.email}: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-				);
-			}
-		}
-		cursor = page.cursor ?? undefined;
-	} while (cursor);
-
-	await ctx.kv.set(notifiedKey, true);
-	await ctx.kv.set("state:last", {
-		at: new Date().toISOString(),
-		post: item.slug,
-		sent,
-		failed,
-	});
-	if (sent > 0 || failed > 0) {
-		ctx.log.info(`newsletter: notified ${sent} subscriber(s) for ${item.slug} (${failed} failed)`);
+		await deliveries(ctx).put(id, {
+			...delivery,
+			to: "",
+			unsubscribeToken: "",
+			status: "queued",
+			attempts,
+			updatedAt: now,
+			lastError: undefined,
+		});
+	} catch (error) {
+		const dead = attempts >= MAX_ENQUEUE_ATTEMPTS;
+		await deliveries(ctx).put(id, {
+			...delivery,
+			status: dead ? "dead" : "failed",
+			attempts,
+			nextAttemptAt: retryAt(attempts),
+			updatedAt: now,
+			lastError: error instanceof Error ? error.message.slice(0, 200) : "enqueue_failed",
+		});
+		ctx.log.error(
+			`newsletter: enqueue failed for delivery ${id} (attempt ${attempts}/${MAX_ENQUEUE_ATTEMPTS})`,
+		);
 	}
 }
 
-/* ------------------------------------------------------------------ */
-/* Block Kit admin page                                                */
-/* ------------------------------------------------------------------ */
+async function retryDeliveries(campaignId: string, campaign: Campaign, ctx: PluginContext) {
+	const page = await deliveries(ctx).query({
+		where: {
+			campaignId,
+			status: { in: ["pending", "failed"] },
+			nextAttemptAt: { lte: new Date().toISOString() },
+		},
+		limit: RETRY_PAGE_SIZE,
+	});
+	for (const item of page.items) {
+		await enqueueDelivery(item.id, item.data, campaign, ctx);
+	}
+}
+
+async function enumerateSubscribers(
+	campaignId: string,
+	campaign: Campaign,
+	ctx: PluginContext,
+): Promise<Campaign> {
+	if (campaign.enumerationComplete) return campaign;
+	const page = await subscribers(ctx).query({
+		where: {
+			status: "confirmed",
+			confirmedAt: { lte: campaign.subscriberCutoff },
+		},
+		limit: SUBSCRIBER_PAGE_SIZE,
+		cursor: campaign.subscriberCursor,
+	});
+
+	for (const subscriber of page.items) {
+		const id = deliveryId(campaignId, subscriber.id);
+		if (await deliveries(ctx).exists(id)) continue;
+		const now = new Date().toISOString();
+		const delivery: Delivery = {
+			campaignId,
+			subscriberId: subscriber.id,
+			to: subscriber.data.email,
+			unsubscribeToken: subscriber.data.token,
+			status: "pending",
+			attempts: 0,
+			nextAttemptAt: now,
+			createdAt: now,
+			updatedAt: now,
+		};
+		// This is the outbox write. A crash after Queue.send may cause a retry,
+		// which is the deliberate at-least-once side of avoiding silent loss.
+		await deliveries(ctx).put(id, delivery);
+		await enqueueDelivery(id, delivery, campaign, ctx);
+	}
+
+	return {
+		...campaign,
+		status: "running",
+		subscriberCursor: page.cursor,
+		enumerationComplete: !page.cursor,
+		updatedAt: new Date().toISOString(),
+	};
+}
+
+async function refreshCampaignCounts(
+	campaignId: string,
+	campaign: Campaign,
+	ctx: PluginContext,
+): Promise<Campaign> {
+	const store = deliveries(ctx);
+	const [queued, failed, pending, dead, skipped] = await Promise.all([
+		store.count({ campaignId, status: "queued" }),
+		store.count({ campaignId, status: "failed" }),
+		store.count({ campaignId, status: "pending" }),
+		store.count({ campaignId, status: "dead" }),
+		store.count({ campaignId, status: "skipped" }),
+	]);
+	let status: CampaignStatus = "running";
+	if (campaign.enumerationComplete && failed === 0 && pending === 0) {
+		status = dead > 0 ? "partial" : "complete";
+	}
+	return {
+		...campaign,
+		status,
+		queued,
+		failed: failed + pending,
+		dead,
+		skipped,
+		updatedAt: new Date().toISOString(),
+	};
+}
+
+async function dispatchNextCampaign(ctx: PluginContext): Promise<void> {
+	const page = await campaigns(ctx).query({
+		where: { status: { in: ["pending", "running"] } },
+		limit: 1,
+	});
+	const selected = page.items[0];
+	if (!selected) return;
+	if (!ctx.email) {
+		ctx.log.warn("newsletter: campaign paused because email pipeline is unavailable");
+		return;
+	}
+
+	await retryDeliveries(selected.id, selected.data, ctx);
+	const enumerated = await enumerateSubscribers(selected.id, selected.data, ctx);
+	const refreshed = await refreshCampaignCounts(selected.id, enumerated, ctx);
+	await campaigns(ctx).put(selected.id, refreshed);
+	await ctx.kv.set("state:last", {
+		at: refreshed.updatedAt,
+		post: refreshed.slug,
+		status: refreshed.status,
+		queued: refreshed.queued,
+		failed: refreshed.failed,
+		dead: refreshed.dead,
+		skipped: refreshed.skipped,
+	});
+}
 
 interface AdminInteraction {
 	type: "page_load" | "block_action" | "form_submit";
-	action_id?: string;
-	values?: Record<string, unknown>;
 }
 
 async function adminBlocks(ctx: PluginContext) {
 	const store = subscribers(ctx);
-	const confirmed = await store.count({ status: "confirmed" });
-	const pending = await store.count({ status: "pending" });
+	const [confirmed, pending, activeCampaigns] = await Promise.all([
+		store.count({ status: "confirmed" }),
+		store.count({ status: "pending" }),
+		campaigns(ctx).count({ status: { in: ["pending", "running"] } }),
+	]);
 	const recent = await store.query({ orderBy: { createdAt: "desc" }, limit: 50 });
 	const last = await ctx.kv.get<Record<string, unknown>>("state:last");
 
@@ -159,14 +415,16 @@ async function adminBlocks(ctx: PluginContext) {
 			{ type: "header", text: "Newsletter" },
 			{
 				type: "stats",
-				stats: [
+				// Block Kit requires `items` here; `stats` crashes the renderer.
+				items: [
 					{ label: "Confirmed", value: String(confirmed) },
 					{ label: "Pending", value: String(pending) },
+					{ label: "Active campaigns", value: String(activeCampaigns) },
 				],
 			},
 			{
 				type: "fields",
-				fields: [{ label: "Last send", value: last ? JSON.stringify(last) : "never" }],
+				fields: [{ label: "Last dispatch", value: last ? JSON.stringify(last) : "never" }],
 			},
 			{
 				type: "table",
@@ -183,22 +441,31 @@ async function adminBlocks(ctx: PluginContext) {
 			},
 			{
 				type: "context",
-				text: "Subscribers sign up via the site footer (double opt-in). New-post emails go out once per post on first publish, through the email-sender transport.",
+				text: "Double opt-in signup. New-post campaigns resume in bounded cron batches; each email is persisted to Cloudflare Queues before being counted as queued.",
 			},
 		],
 	};
 }
 
-/* ------------------------------------------------------------------ */
-
 export default {
 	hooks: {
+		"plugin:install": async (_event: unknown, ctx: PluginContext) => {
+			await ensureCampaignCron(ctx);
+		},
+		"plugin:activate": async (_event: unknown, ctx: PluginContext) => {
+			await ensureCampaignCron(ctx);
+		},
 		"content:afterPublish": {
 			priority: 400,
-			timeout: 120000,
+			timeout: 30_000,
 			errorPolicy: "continue",
-			handler: async (event: ContentEvent, ctx: PluginContext) => {
-				await notifySubscribers(event, ctx);
+			handler: createCampaign,
+		},
+		cron: {
+			timeout: 120_000,
+			errorPolicy: "continue",
+			handler: async (event: { name: string }, ctx: PluginContext) => {
+				if (event.name === CAMPAIGN_CRON) await dispatchNextCampaign(ctx);
 			},
 		},
 	},
@@ -208,53 +475,65 @@ export default {
 			public: true,
 			handler: async (routeCtx: { input: unknown }, ctx: PluginContext) => {
 				const input = routeCtx.input as { email?: unknown };
-				const email = String(input?.email ?? "")
-					.trim()
-					.toLowerCase();
-				if (!EMAIL_RE.test(email) || email.length > 254) {
-					return { ok: false, error: "invalid_email" };
-				}
+				const email = parseEmail(input?.email);
+				if (!email) return { ok: false, error: "invalid_email" };
+				const rateLimit = await checkSubscriptionRateLimit(email);
+				if (rateLimit === "limited") return { ok: false, error: "rate_limited" };
+				if (rateLimit === "unavailable") return { ok: false, error: "unavailable" };
 				if (!ctx.email) {
 					ctx.log.warn("newsletter: subscribe attempted but email pipeline unavailable");
 					return { ok: false, error: "unavailable" };
 				}
 
 				const existing = await findByEmail(ctx, email);
-				if (existing?.data.status === "confirmed") {
-					// Silent success — do not leak which addresses are subscribed
-					return { ok: true };
-				}
-				const now = new Date().toISOString();
+				if (existing?.data.status === "confirmed") return { ok: true };
+				const nowMs = Date.now();
 				if (
 					existing?.data.confirmSentAt &&
-					Date.now() - Date.parse(existing.data.confirmSentAt) < RESEND_THROTTLE_MS
+					nowMs - Date.parse(existing.data.confirmSentAt) < RESEND_THROTTLE_MS
+				) {
+					return { ok: true };
+				}
+				if (
+					existing?.data.confirmLeaseUntil &&
+					Date.parse(existing.data.confirmLeaseUntil) > nowMs
 				) {
 					return { ok: true };
 				}
 
-				const record: Subscriber = existing?.data ?? {
-					email,
-					status: "pending",
-					token: crypto.randomUUID(),
-					createdAt: now,
+				const now = new Date(nowMs).toISOString();
+				const recordId = existing?.id ?? crypto.randomUUID();
+				const record: Subscriber = {
+					...(existing?.data ?? {
+						email,
+						status: "pending" as const,
+						token: crypto.randomUUID(),
+						createdAt: now,
+					}),
+					confirmLeaseUntil: new Date(nowMs + CONFIRM_LEASE_MS).toISOString(),
 				};
-				const recordId = existing ? existing.id : crypto.randomUUID();
+				try {
+					await subscribers(ctx).put(recordId, record);
+				} catch {
+					// The unique email index resolves concurrent first subscriptions
+					// without revealing whether the competing request won.
+					return { ok: true };
+				}
+
 				try {
 					await sendConfirmEmail(ctx, record);
-				} catch (error) {
-					ctx.log.error(
-						`newsletter: confirm email failed for ${email}: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-					);
+					await subscribers(ctx).put(recordId, {
+						...record,
+						confirmSentAt: now,
+						confirmLeaseUntil: undefined,
+					});
+					ctx.log.info(`newsletter: confirmation queued for subscriber ${recordId}`);
+					return { ok: true };
+				} catch {
+					await subscribers(ctx).put(recordId, { ...record, confirmLeaseUntil: undefined });
+					ctx.log.error(`newsletter: confirmation enqueue failed for subscriber ${recordId}`);
 					return { ok: false, error: "send_failed" };
 				}
-				// Persist only after the send succeeded so a failed send
-				// doesn't start the 24h resend throttle
-				record.confirmSentAt = now;
-				await subscribers(ctx).put(recordId, record);
-				ctx.log.info(`newsletter: confirm email sent to ${email}`);
-				return { ok: true };
 			},
 		},
 
@@ -262,14 +541,19 @@ export default {
 			public: true,
 			handler: async (routeCtx: { input: unknown }, ctx: PluginContext) => {
 				const input = routeCtx.input as { token?: unknown };
-				const found = await findByToken(ctx, String(input?.token ?? "").trim());
+				const token = typeof input?.token === "string" ? input.token.trim() : "";
+				const found = await findByToken(ctx, token);
 				if (!found) return { ok: false };
 				await subscribers(ctx).put(found.id, {
 					...found.data,
 					status: "confirmed",
-					confirmedAt: new Date().toISOString(),
+					confirmedAt: found.data.confirmedAt ?? new Date().toISOString(),
 				});
-				ctx.log.info(`newsletter: confirmed ${found.data.email}`);
+				// Self-heal: make sure the dispatch cron exists once there is at
+				// least one confirmed subscriber (publish-time registration can
+				// have been skipped when ctx.cron was unavailable).
+				await ensureCampaignCron(ctx);
+				ctx.log.info(`newsletter: subscriber ${found.id} confirmed`);
 				return { ok: true };
 			},
 		},
@@ -278,12 +562,12 @@ export default {
 			public: true,
 			handler: async (routeCtx: { input: unknown }, ctx: PluginContext) => {
 				const input = routeCtx.input as { token?: unknown };
-				const found = await findByToken(ctx, String(input?.token ?? "").trim());
+				const token = typeof input?.token === "string" ? input.token.trim() : "";
+				const found = await findByToken(ctx, token);
 				if (found) {
 					await subscribers(ctx).delete(found.id);
-					ctx.log.info(`newsletter: unsubscribed ${found.data.email}`);
+					ctx.log.info(`newsletter: subscriber ${found.id} unsubscribed`);
 				}
-				// Always succeed — the link may be clicked twice
 				return { ok: true };
 			},
 		},
@@ -292,6 +576,10 @@ export default {
 			handler: async (routeCtx: { input: unknown }, ctx: PluginContext) => {
 				const interaction = routeCtx.input as AdminInteraction;
 				void interaction;
+				// Self-heal: opening the admin page (re)registers the dispatch
+				// cron, so stuck "pending" campaigns start draining without
+				// requiring a new post publish.
+				await ensureCampaignCron(ctx);
 				return adminBlocks(ctx);
 			},
 		},

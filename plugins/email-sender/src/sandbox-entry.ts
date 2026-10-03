@@ -1,26 +1,15 @@
 import { env } from "cloudflare:workers";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
+import { createEmailDeliveryMessage } from "./queue";
 
 /**
  * Email transport plugin (runtime). See ./index.ts for the overview.
  *
- * Delivers EmDash's outgoing email (auth mail, comment notifications,
- * plugin email via ctx.email.send) through the Cloudflare Email Sending
- * binding. The `email:deliver` hook is exclusive — EmDash routes mail
- * here once this plugin is selected as the provider in Settings > Email.
+ * Persists EmDash's outgoing email (auth mail, comment notifications,
+ * plugin email via ctx.email.send) to Cloudflare Queues. The Worker queue
+ * consumer performs the final Email Sending call. The `email:deliver` hook
+ * remains exclusive, so EmDash routes mail here once selected as provider.
  */
-
-/** Structural view of the send_email binding (kept local so the plugin
- * package doesn't depend on the site's generated types). */
-interface SendEmailLike {
-	send(message: {
-		to: string;
-		from: { email: string; name?: string };
-		subject: string;
-		text: string;
-		html?: string;
-	}): Promise<unknown>;
-}
 
 interface Settings {
 	fromAddress: string;
@@ -45,22 +34,23 @@ interface AdminInteraction {
 async function settingsBlocks(ctx: PluginContext) {
 	const settings = await readSettings(ctx);
 	const last = await ctx.kv.get<Record<string, unknown>>("state:last");
-	const binding = (env as { EMAIL?: SendEmailLike }).EMAIL;
+	const queueAvailable = Boolean(env.EMAIL_QUEUE);
+	const emailAvailable = Boolean(env.EMAIL);
 	return {
 		blocks: [
 			{ type: "header", text: "Email Sender (Cloudflare Email Sending)" },
 			{
 				type: "context",
-				text: "Delivers EmDash email through the send_email Worker binding — no API keys. The from address must belong to a domain onboarded to Email Sending (inaridiy.com) and be listed in allowed_sender_addresses in wrangler.jsonc. Select this plugin as the provider in Settings > Email.",
+				text: "Persists EmDash email to Cloudflare Queue, then the Worker consumer delivers it through Email Sending. The from address must belong to an onboarded domain and be listed in allowed_sender_addresses. Select this plugin as the provider in Settings > Email.",
 			},
-			...(binding
+			...(queueAvailable && emailAvailable
 				? []
 				: [
 						{
 							type: "banner",
-							title: "EMAIL binding not available",
+							title: "Email delivery bindings unavailable",
 							description:
-								"The send_email binding only exists on the deployed Worker (or wrangler dev with remote: true). Emails cannot be delivered in this environment.",
+								"EMAIL_QUEUE and EMAIL must both exist on the deployed Worker. Messages cannot be durably delivered in this environment.",
 							variant: "alert",
 						},
 					]),
@@ -86,7 +76,7 @@ async function settingsBlocks(ctx: PluginContext) {
 			{ type: "divider" },
 			{
 				type: "fields",
-				fields: [{ label: "Last delivery", value: last ? JSON.stringify(last) : "never" }],
+				fields: [{ label: "Last enqueue", value: last ? JSON.stringify(last) : "never" }],
 			},
 		],
 	};
@@ -101,30 +91,30 @@ export default {
 				event: { message: { to: string; subject: string; text: string; html?: string }; source: string },
 				ctx: PluginContext,
 			) => {
-				const binding = (env as { EMAIL?: SendEmailLike }).EMAIL;
-				if (!binding) {
+				if (!env.EMAIL_QUEUE) {
 					throw new Error(
-						"email-sender: send_email binding EMAIL is not available in this environment",
+						"email-sender: Queue binding EMAIL_QUEUE is not available in this environment",
 					);
 				}
 				const settings = await readSettings(ctx);
 				const { message } = event;
 				try {
-					await binding.send({
+					const queued = createEmailDeliveryMessage({
 						to: message.to,
 						from: { email: settings.fromAddress, name: settings.fromName },
 						subject: message.subject,
 						text: message.text,
 						html: message.html,
+						source: event.source,
 					});
+					await env.EMAIL_QUEUE.send(queued);
 					await ctx.kv.set("state:last", {
 						at: new Date().toISOString(),
 						ok: true,
-						to: message.to,
-						subject: message.subject,
+						deliveryId: queued.id,
 						source: event.source,
 					});
-					ctx.log.info(`email-sender: delivered to ${message.to} (${event.source})`);
+					ctx.log.info(`email-sender: queued ${queued.id} (${event.source})`);
 				} catch (error) {
 					const detail =
 						error instanceof Error
@@ -133,10 +123,10 @@ export default {
 					await ctx.kv.set("state:last", {
 						at: new Date().toISOString(),
 						ok: false,
-						to: message.to,
+						source: event.source,
 						error: detail,
 					});
-					ctx.log.error(`email-sender: delivery failed: ${detail}`);
+					ctx.log.error(`email-sender: enqueue failed: ${detail}`);
 					throw error;
 				}
 			},

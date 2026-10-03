@@ -6,6 +6,13 @@
  *  - the search-sync plugin (event-driven upsert on publish/save)
  *  - src/search-index.ts (hourly cron reconciliation over D1 rows)
  */
+import {
+	CONTENT_COLLECTIONS,
+	getContentContract,
+	isContentCollection,
+	type ContentCollection,
+	type SearchBodyField,
+} from "@inaridiy/content-contract";
 
 export interface SearchDoc {
 	/** AI Search item key, mirrors the site URL (e.g. "posts/slug.md") */
@@ -14,7 +21,7 @@ export interface SearchDoc {
 	url: string;
 	lang: "ja" | "en";
 	body: string;
-	collection: string;
+	collection: ContentCollection;
 }
 
 interface PortableTextSpanLike {
@@ -105,9 +112,24 @@ export function docMetadata(
 	};
 }
 
-function str(fields: Record<string, unknown>, key: string): string {
-	const value = fields[key];
-	return typeof value === "string" ? value : "";
+function hasValue(value: unknown): boolean {
+	if (typeof value === "string") return value.trim().length > 0;
+	if (Array.isArray(value)) return value.length > 0;
+	if (value instanceof Date) return !Number.isNaN(value.getTime());
+	return value !== null && value !== undefined;
+}
+
+function textValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return "";
+}
+
+function projectedValue(fields: Record<string, unknown>, spec: SearchBodyField): unknown {
+	const value = fields[spec.field];
+	if (hasValue(value) || !spec.fallbackField) return value;
+	return fields[spec.fallbackField];
 }
 
 /**
@@ -120,72 +142,46 @@ export function buildEntryDocs(
 	slug: string,
 	fields: Record<string, unknown>,
 ): SearchDoc[] {
-	if (!slug) return [];
+	if (!slug || !isContentCollection(collection)) return [];
+	const contract = getContentContract(collection);
+	const docs: SearchDoc[] = [];
 
-	if (collection === "posts") {
-		const docs: SearchDoc[] = [
-			{
-				key: `posts/${slug}.md`,
-				collection,
-				title: str(fields, "title"),
-				url: `/posts/${slug}`,
-				lang: "ja",
-				body: [str(fields, "excerpt"), portableTextToMarkdown(fields.content)]
-					.filter(Boolean)
-					.join("\n\n"),
-			},
-		];
-		if (str(fields, "title_en") || fields.content_en) {
-			docs.push({
-				key: `posts/${slug}.en.md`,
-				collection,
-				title: str(fields, "title_en") || str(fields, "title"),
-				url: `/en/posts/${slug}`,
-				lang: "en",
-				body: [str(fields, "excerpt_en"), portableTextToMarkdown(fields.content_en)]
-					.filter(Boolean)
-					.join("\n\n"),
-			});
+	for (const projection of contract.search) {
+		if (
+			projection.availabilityFields?.length &&
+			!projection.availabilityFields.some((field) => hasValue(fields[field]))
+		) {
+			continue;
 		}
-		return docs;
+
+		const title =
+			textValue(fields[projection.titleField]) ||
+			(projection.titleFallbackField
+				? textValue(fields[projection.titleFallbackField])
+				: "");
+		const body = projection.body
+			.map((spec) => {
+				const value = projectedValue(fields, spec);
+				const rendered =
+					spec.kind === "portableText" ? portableTextToMarkdown(value) : textValue(value);
+				if (!rendered) return "";
+				return spec.label ? `${spec.label}: ${rendered}` : rendered;
+			})
+			.filter(Boolean)
+			.join("\n\n");
+
+		docs.push({
+			key: `${collection}/${slug}${projection.keySuffix}.md`,
+			collection,
+			title,
+			url: projection.url(slug),
+			lang: projection.lang,
+			body,
+		});
 	}
 
-	if (collection === "pages") {
-		return [
-			{
-				key: `pages/${slug}.md`,
-				collection,
-				title: str(fields, "title"),
-				url: slug === "about" ? "/about" : `/pages/${slug}`,
-				lang: "ja",
-				body: portableTextToMarkdown(fields.content),
-			},
-		];
-	}
-
-	if (collection === "activities") {
-		const date = fields.date instanceof Date ? fields.date.toISOString() : str(fields, "date");
-		return [
-			{
-				key: `activities/${slug}.md`,
-				collection,
-				title: str(fields, "title"),
-				url: "/activities",
-				lang: "ja",
-				body: [
-					date && `Date: ${date}`,
-					str(fields, "kind") && `Kind: ${str(fields, "kind")}`,
-					str(fields, "url") && `Link: ${str(fields, "url")}`,
-					str(fields, "description"),
-				]
-					.filter(Boolean)
-					.join("\n\n"),
-			},
-		];
-	}
-
-	return [];
+	return docs;
 }
 
 /** Collections the search index covers. */
-export const INDEXED_COLLECTIONS = ["posts", "pages", "activities"] as const;
+export const INDEXED_COLLECTIONS = CONTENT_COLLECTIONS;

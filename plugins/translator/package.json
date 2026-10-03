@@ -6,7 +6,11 @@
 	"description": "Auto-translates published content (JA -> EN) through Cloudflare AI Gateway",
 	"exports": {
 		".": "./src/index.ts",
-		"./sandbox": "./src/sandbox-entry.ts"
+		"./sandbox": "./src/sandbox-entry.ts",
+		"./translate": "./src/translate.ts"
+	},
+	"dependencies": {
+		"@inaridiy/content-contract": "workspace:*"
 	},
 	"peerDependencies": {
 		"emdash": "^0.28.1"

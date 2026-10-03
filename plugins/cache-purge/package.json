@@ -1,0 +1,14 @@
+{
+	"name": "emdash-plugin-cache-purge",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Purges Workers Cache tags (collection + entry id) when content changes",
+	"exports": {
+		".": "./src/index.ts",
+		"./sandbox": "./src/sandbox-entry.ts"
+	},
+	"peerDependencies": {
+		"emdash": "^0.28.1"
+	}
+}

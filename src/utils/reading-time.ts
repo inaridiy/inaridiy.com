@@ -57,10 +57,3 @@ export function getReadingTime(content: PortableTextBlock[] | undefined): number
 	);
 	return Math.max(1, minutes);
 }
-
-/**
- * Format reading time for display
- */
-export function formatReadingTime(minutes: number): string {
-	return `${minutes} min read`;
-}

@@ -8,7 +8,8 @@ import { resolveBlogSiteIdentity } from "../../utils/site-identity";
  * no specific image (Base.astro falls back to it). Same dark card as the
  * post OG images, with the site title as the heading.
  */
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ cache }) => {
+	cache.set({ maxAge: 3600, swr: 86400 });
 	const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings());
 	return renderOgCard({
 		title: siteTitle,

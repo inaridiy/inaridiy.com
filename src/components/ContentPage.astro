@@ -1,0 +1,50 @@
+---
+import type { PortableTextBlock } from "emdash";
+import { PortableText } from "emdash/ui";
+import CodeBlock from "./CodeBlock.astro";
+
+interface Props {
+	title: string;
+	content?: PortableTextBlock[];
+	lang?: "ja" | "en";
+	isTranslated?: boolean;
+	titleEdit?: Record<string, string>;
+}
+
+const { title, content, lang = "ja", isTranslated = false, titleEdit = {} } = Astro.props;
+---
+
+<article class="page">
+	<h1 class="page-title" {...titleEdit}>{title}</h1>
+	{
+		lang === "en" && !isTranslated && (
+			<p class="translation-note">
+				English translation is not available yet — showing the Japanese original below.
+			</p>
+		)
+	}
+	<div class="page-content">
+		<PortableText value={content} components={{ type: { code: CodeBlock } }} />
+	</div>
+</article>
+
+<style>
+	.page { max-width: var(--content-width); }
+	.page-title { font-size: var(--font-size-xl); margin-bottom: var(--spacing-6); }
+	.translation-note {
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+		border-left: 2px solid var(--color-border);
+		padding-left: var(--spacing-3);
+		margin-bottom: var(--spacing-4);
+	}
+	.page-content { line-height: var(--leading-relaxed); }
+	.page-content :global(p) { margin-bottom: 1.4em; }
+	.page-content :global(h2) {
+		font-size: var(--font-size-lg);
+		margin-top: 2em;
+		margin-bottom: 0.6em;
+	}
+	.page-content :global(ul),
+	.page-content :global(ol) { margin-bottom: 1.4em; padding-left: 1.5em; }
+</style>

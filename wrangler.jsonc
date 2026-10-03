@@ -2,14 +2,27 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "inaridiy-com",
 	"main": "./src/worker.ts",
-	"compatibility_date": "2026-02-24",
+	"compatibility_date": "2026-07-19",
 	// Persist production logs (viewable in the dashboard, not just `wrangler tail`)
 	"observability": {
 		"enabled": true,
+		"head_sampling_rate": 0.1,
+	},
+	// Required secret names are part of generated Env types; values remain in
+	// Wrangler secrets/.env and never enter source control.
+	"secrets": {
+		"required": ["EMDASH_ENCRYPTION_KEY", "GITHUB_EXPORT_TOKEN"],
 	},
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// Workers Cache: edge cache in front of the Worker. Public pages opt in
+	// via CDN-Cache-Control (astro.config routeRules) + Cache-Tag headers;
+	// plugins/cache-purge purges tags on content changes. EmDash admin/API
+	// send `private, no-store` and are never stored.
+	"cache": {
+		"enabled": true
+	},
 	"d1_databases": [
 		{
 			"binding": "DB",
@@ -18,6 +31,14 @@
 			"database_id": "7fa9f8ae-b306-4784-8f4c-84fbb8f6eb83",
 			"migrations_dir": "../../migrations",
 		},
+	],
+	// EmDash object cache (kvCache in astro.config.mjs): D1 query results
+	// served from KV so most reads skip the database.
+	"kv_namespaces": [
+		{
+			"binding": "CACHE",
+			"id": "1132950a39b94de49e1d8c0aed1f3a74"
+		}
 	],
 	"r2_buckets": [
 		{
@@ -45,6 +66,64 @@
 		{
 			"name": "EMAIL",
 			"allowed_sender_addresses": ["noreply@inaridiy.com"],
+		},
+	],
+	// All EmDash email is persisted before delivery. Provision the producer
+	// queue once with: wrangler queues create inaridiy-email
+	"queues": {
+		"producers": [
+			{
+				"binding": "EMAIL_QUEUE",
+				"queue": "inaridiy-email",
+			},
+		],
+		"consumers": [
+			{
+				"queue": "inaridiy-email",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+				"max_retries": 5,
+				"dead_letter_queue": "inaridiy-email-dlq",
+				"max_concurrency": 2,
+			},
+		],
+	},
+	// Cloudflare Rate Limiting bindings are per-location abuse controls. The
+	// namespace IDs are deliberately unique within this account.
+	"ratelimits": [
+		{
+			"name": "AI_RATE_LIMITER",
+			"namespace_id": "24071901",
+			"simple": { "limit": 10, "period": 60 },
+		},
+		{
+			"name": "NEWSLETTER_RATE_LIMITER",
+			"namespace_id": "24071902",
+			"simple": { "limit": 2, "period": 60 },
+		},
+		{
+			"name": "LIKES_RATE_LIMITER",
+			"namespace_id": "24071903",
+			"simple": { "limit": 10, "period": 60 },
+		},
+	],
+	// Durable JA->EN translation jobs. The translator plugin's hooks enqueue
+	// instances; model calls run as retryable steps outside the 30s
+	// post-response waitUntil window that kills long-running hooks.
+	"workflows": [
+		{
+			"binding": "TRANSLATOR_WORKFLOW",
+			"name": "inaridiy-translator",
+			"class_name": "TranslatorWorkflow",
+		},
+	],
+	// Self service binding: TranslatorWorkflow calls the translator plugin's
+	// callback routes through it (deterministic re-entry; same-zone fetch
+	// from a Worker does not reliably re-invoke the Worker).
+	"services": [
+		{
+			"binding": "SELF",
+			"service": "inaridiy-com",
 		},
 	],
 	// Worker Loader for plugin sandboxing

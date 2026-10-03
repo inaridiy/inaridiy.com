@@ -9,8 +9,9 @@ import type { PluginDescriptor } from "emdash";
  * scheduled pull — the repo follows the CMS in near-real-time, and the
  * reverse direction (git -> CMS) is handled by the content-sync workflow.
  *
- * Configure in Admin -> GitHub Export: repo (owner/name), branch, and a
- * fine-grained PAT with Contents read/write on that one repo.
+ * Configure repo/branch in Admin -> GitHub Export. The fine-grained PAT
+ * (Contents read/write on that one repo) is a GITHUB_EXPORT_TOKEN Wrangler
+ * secret and is never stored in plugin KV.
  */
 export function githubExportPlugin(): PluginDescriptor {
 	return {

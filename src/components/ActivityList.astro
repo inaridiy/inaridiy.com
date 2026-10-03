@@ -1,0 +1,114 @@
+---
+interface ActivityEntryLike {
+	data: {
+		title: string;
+		title_en?: string | null;
+		date: string | Date;
+		kind?: string | null;
+		url?: string | null;
+		description?: string | null;
+		description_en?: string | null;
+	};
+}
+
+interface ActivityRow {
+	title: string;
+	date: Date;
+	kind: string | null;
+	url: string | null;
+	description: string | null;
+}
+
+interface Props {
+	activities: ActivityEntryLike[];
+	lang?: "ja" | "en";
+}
+
+const { activities, lang = "ja" } = Astro.props;
+const rows: ActivityRow[] = activities
+	.map((activity) => ({
+		title:
+			lang === "en"
+				? activity.data.title_en || activity.data.title
+				: activity.data.title,
+		date:
+			activity.data.date instanceof Date
+				? activity.data.date
+				: new Date(activity.data.date),
+		kind: activity.data.kind ?? null,
+		url: activity.data.url ?? null,
+		description:
+			lang === "en"
+				? activity.data.description_en || activity.data.description || null
+				: activity.data.description ?? null,
+	}))
+	.filter((row) => !Number.isNaN(row.date.getTime()))
+	.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+const byYear = new Map<number, ActivityRow[]>();
+for (const row of rows) {
+	const year = row.date.getUTCFullYear();
+	const bucket = byYear.get(year) ?? [];
+	bucket.push(row);
+	byYear.set(year, bucket);
+}
+---
+
+{rows.length === 0 && <p class="empty">{lang === "en" ? "No activities yet." : "まだ活動記録がありません。"}</p>}
+
+{
+	[...byYear.entries()].map(([year, items]) => (
+		<section class="year-section">
+			<h2 class="year">{year}</h2>
+			<ul class="activity-list">
+				{items.map((item) => (
+					<li class="activity-row">
+						<span class="activity-date">
+							{String(item.date.getUTCMonth() + 1).padStart(2, "0")}
+						</span>
+						{item.kind && <span class="activity-kind">[{item.kind}]</span>}
+						<span class="activity-body">
+							{item.url ? (
+								<a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
+							) : (
+								<span>{item.title}</span>
+							)}
+							{item.description && <span class="activity-desc"> — {item.description}</span>}
+						</span>
+					</li>
+				))}
+			</ul>
+		</section>
+	))
+}
+
+<style>
+	.empty { color: var(--color-text-secondary); }
+	.year-section { margin-bottom: var(--spacing-6); }
+	.year {
+		font-size: var(--font-size-base);
+		color: var(--color-muted);
+		font-family: var(--font-mono);
+		margin-bottom: var(--spacing-2);
+		border-bottom: 1px solid var(--color-border-subtle);
+		padding-bottom: var(--spacing-1);
+	}
+	.activity-list { list-style: none; }
+	.activity-row {
+		display: flex;
+		gap: var(--spacing-2);
+		padding: var(--spacing-1) 0;
+		line-height: var(--leading-normal);
+	}
+	.activity-date,
+	.activity-kind {
+		font-family: var(--font-mono);
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		flex-shrink: 0;
+		padding-top: 1px;
+	}
+	.activity-kind { color: var(--color-text-secondary); }
+	.activity-body { min-width: 0; }
+	.activity-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+</style>

@@ -11,7 +11,7 @@ const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
 	orderBy: { published_at: "desc" },
 	limit: 20,
 });
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+Astro.cache.set(cacheHint);
 ---
 
 <Base

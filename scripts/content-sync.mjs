@@ -76,6 +76,7 @@ async function fetchRemote(client, collection) {
 /** Normalized comparable snapshot of one entry. */
 function snapshot(entry, format) {
 	return JSON.stringify({
+		slug: entry.slug,
 		status: entry.status,
 		fields: format.fields.map((f) => entry.fields[f] ?? ""),
 		body: entry.body.trim(),
@@ -84,6 +85,7 @@ function snapshot(entry, format) {
 
 function remoteToEntry(item, format) {
 	return {
+		cmsId: item.id,
 		slug: item.slug,
 		status: item.status,
 		fields: Object.fromEntries(
@@ -134,34 +136,70 @@ async function push({ prune = false } = {}) {
 		const files = (await readdir(format.dir)).filter((f) => f.endsWith(".md"));
 		const remote = await fetchRemote(client, collection);
 		const remoteBySlug = new Map(remote.map((item) => [item.slug, item]));
-		const localSlugs = new Set();
+		const remoteById = new Map(remote.map((item) => [item.id, item]));
+		const matchedRemoteIds = new Set();
+		const localCmsIds = new Set();
 
 		for (const file of files) {
 			const text = await readFile(join(format.dir, file), "utf8");
-			const entry = parseEntry(text, file.replace(/\.md$/, ""));
-			localSlugs.add(entry.slug);
+			const fileSlug = file.replace(/\.md$/, "");
+			const entry = parseEntry(text, fileSlug);
+			if (entry.slug !== fileSlug) {
+				throw new Error(
+					`${format.dir}/${file}: filename and frontmatter slug must match (${fileSlug} != ${entry.slug})`,
+				);
+			}
+			if (entry.cmsId && localCmsIds.has(entry.cmsId)) {
+				throw new Error(`${format.dir}/${file}: duplicate cms_id ${entry.cmsId}`);
+			}
+			if (entry.cmsId) localCmsIds.add(entry.cmsId);
 			const data = entryToData(entry, format);
-			const existing = remoteBySlug.get(entry.slug);
+			const existing = entry.cmsId
+				? remoteById.get(entry.cmsId)
+				: remoteBySlug.get(entry.slug);
+			if (entry.cmsId && !existing) {
+				throw new Error(
+					`${format.dir}/${file}: cms_id ${entry.cmsId} does not exist in ${collection}; refusing slug fallback`,
+				);
+			}
 
 			if (!existing) {
 				// Status is a lifecycle transition, not an update field: create as
 				// draft, then publish (same flow as the official CLI).
 				const created = await client.create(collection, { slug: entry.slug, data });
 				if (entry.status === "published") await client.publish(collection, created.id);
+				await writeFile(
+					join(format.dir, file),
+					serializeEntry({ ...entry, cmsId: created.id }, format.fields),
+					"utf8",
+				);
+				matchedRemoteIds.add(created.id);
 				console.log(`created ${collection}/${entry.slug}`);
 				continue;
+			}
+			matchedRemoteIds.add(existing.id);
+			if (!entry.cmsId) {
+				console.warn(
+					`migrate ${format.dir}/${file}: matched legacy slug and wrote cms_id ${existing.id}`,
+				);
+				entry.cmsId = existing.id;
+				await writeFile(join(format.dir, file), serializeEntry(entry, format.fields), "utf8");
 			}
 
 			// Re-read for the _rev token + Markdown-converted comparison
 			const current = await client.get(collection, existing.id);
 			const unchanged =
-				snapshot(remoteToEntry({ ...current, slug: entry.slug }, format), format) ===
+				snapshot(remoteToEntry(current, format), format) ===
 				snapshot(entry, format);
 			if (unchanged) {
 				console.log(`skip    ${collection}/${entry.slug} (unchanged)`);
 				continue;
 			}
-			await client.update(collection, existing.id, { data, _rev: current._rev });
+			await client.update(collection, existing.id, {
+				data,
+				slug: entry.slug,
+				_rev: current._rev,
+			});
 			if (entry.status === "published") {
 				await client.publish(collection, existing.id);
 			} else if (entry.status === "draft" && current.status === "published") {
@@ -171,7 +209,7 @@ async function push({ prune = false } = {}) {
 		}
 
 		for (const item of remote) {
-			if (localSlugs.has(item.slug)) continue;
+			if (matchedRemoteIds.has(item.id)) continue;
 			if (prune) {
 				await client.delete(collection, item.id);
 				console.log(`deleted ${collection}/${item.slug} (pruned)`);

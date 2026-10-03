@@ -1,4 +1,5 @@
 export interface MarkdownEntry {
+	cmsId?: string;
 	slug: string;
 	status: string;
 	fields: Record<string, string>;

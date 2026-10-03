@@ -6,6 +6,7 @@ import emdashWorker, {
 	PluginBridge,
 	createScheduledHandler,
 } from "@emdash-cms/cloudflare/worker";
+import { deliverEmailBatch } from "./email-queue";
 import { syncSearchIndex } from "./search-index";
 
 const emdashScheduled = createScheduledHandler();
@@ -13,17 +14,22 @@ const emdashScheduled = createScheduledHandler();
 /** Canonical host — requests on *.workers.dev are 301'd here. */
 const CANONICAL_HOST = "inaridiy.com";
 
-export default {
+const worker = {
 	...emdashWorker,
-	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+	async fetch(
+		request: Parameters<ExportedHandlerFetchHandler<Env>>[0],
+		env: Env,
+		ctx: ExecutionContext,
+	) {
 		const url = new URL(request.url);
 		if (url.hostname.endsWith(".workers.dev")) {
 			url.hostname = CANONICAL_HOST;
 			url.port = "";
 			return Response.redirect(url.toString(), 301);
 		}
-		const emdashFetch = (emdashWorker as unknown as Required<ExportedHandler<Env>>).fetch;
-		return emdashFetch(request as Parameters<typeof emdashFetch>[0], env, ctx);
+		const emdashFetch = emdashWorker.fetch;
+		if (!emdashFetch) throw new Error("EmDash Worker did not export a fetch handler");
+		return emdashFetch(request, env, ctx);
 	},
 	scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
 		emdashScheduled(controller, env, ctx);
@@ -34,11 +40,22 @@ export default {
 		if (new Date(controller.scheduledTime).getUTCMinutes() === 0) {
 			ctx.waitUntil(
 				syncSearchIndex(env).catch((error) => {
-					console.error("[search-index] reconciliation failed:", error);
+					console.error({
+						event: "search_index_reconciliation_failed",
+						error: error instanceof Error ? error.message : String(error),
+					});
 				}),
 			);
 		}
 	},
-};
+	async queue(batch: MessageBatch<unknown>, env: Env) {
+		await deliverEmailBatch(batch, env.EMAIL);
+	},
+} satisfies ExportedHandler<Env, unknown>;
+
+export default worker;
 
 export { PluginBridge };
+// Workflow classes must be exported from the Worker entry module or their
+// bindings fail to resolve.
+export { TranslatorWorkflow } from "./translator-workflow";

@@ -25,12 +25,37 @@ const { code = "", language, filename } = Astro.props.node ?? {};
 
 const GITHUB_BLOB =
 	/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/blob\/([^/]+)\/(\S+?)(?:#L(\d+)(?:[-–]L?(\d+))?)?$/;
+const MAX_RESPONSE_BYTES = 512 * 1024;
+const MAX_SNIPPET_LINES = 400;
+const MAX_SNIPPET_CHARS = 64 * 1024;
 
 interface Embed {
 	url: string;
 	label: string;
 	lang: string;
 	snippet: string;
+}
+
+async function readBoundedText(response: Response): Promise<string | null> {
+	const declaredLength = Number(response.headers.get("content-length"));
+	if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) return null;
+	if (!response.body) return null;
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let text = "";
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		bytes += value.byteLength;
+		if (bytes > MAX_RESPONSE_BYTES) {
+			await reader.cancel();
+			return null;
+		}
+		text += decoder.decode(value, { stream: true });
+	}
+	return text + decoder.decode();
 }
 
 async function resolveGithubEmbed(raw: string): Promise<Embed | null> {
@@ -40,14 +65,24 @@ async function resolveGithubEmbed(raw: string): Promise<Embed | null> {
 	try {
 		const response = await fetch(
 			`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`,
-			{ cf: { cacheTtl: 3600, cacheEverything: true } } as RequestInit,
+			{
+				cf: { cacheTtl: 3600, cacheEverything: true },
+				signal: AbortSignal.timeout(5_000),
+			},
 		);
 		if (!response.ok) return null;
-		const text = await response.text();
+		const text = await readBoundedText(response);
+		if (text === null) return null;
 		const lines = text.split("\n");
 		const from = fromRaw ? Math.max(1, parseInt(fromRaw, 10)) : 1;
-		const to = toRaw ? Math.min(lines.length, parseInt(toRaw, 10)) : fromRaw ? from : lines.length;
-		const snippet = lines.slice(from - 1, to).join("\n");
+		if (from > lines.length) return null;
+		const requestedTo = toRaw
+			? parseInt(toRaw, 10)
+			: fromRaw
+				? from
+				: lines.length;
+		const to = Math.min(lines.length, requestedTo, from + MAX_SNIPPET_LINES - 1);
+		const snippet = lines.slice(from - 1, to).join("\n").slice(0, MAX_SNIPPET_CHARS);
 		const range = fromRaw ? `#L${from}${to !== from ? `-L${to}` : ""}` : "";
 		return {
 			url: raw.trim(),

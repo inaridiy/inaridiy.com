@@ -3,10 +3,11 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "EmDash email transport backed by Cloudflare Email Sending (send_email binding, no API keys)",
+	"description": "Durable EmDash email transport backed by Cloudflare Queues and Email Sending",
 	"exports": {
 		".": "./src/index.ts",
-		"./sandbox": "./src/sandbox-entry.ts"
+		"./sandbox": "./src/sandbox-entry.ts",
+		"./queue": "./src/queue.ts"
 	},
 	"peerDependencies": {
 		"emdash": "^0.28.1"

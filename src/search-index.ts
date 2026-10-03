@@ -18,6 +18,13 @@ import {
 	renderDoc,
 	type SearchDoc,
 } from "emdash-plugin-search-sync/docs";
+import {
+	CONTENT_COLLECTIONS,
+	getContentContract,
+	getContentQueryColumns,
+	isContentCollection,
+	type ContentCollection,
+} from "@inaridiy/content-contract";
 
 /** Env shape this module needs. SEARCH is optional: the ai_search binding
  * only exists once the instance is created and uncommented in wrangler.jsonc. */
@@ -28,16 +35,35 @@ export interface SearchIndexEnv {
 
 type Row = Record<string, unknown>;
 
-async function queryPublished(db: D1Database, table: string, columns: string[]): Promise<Row[]> {
+function quoteIdentifier(identifier: string): string {
+	return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+export function isMissingTableError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /\bno such table\b/i.test(message);
+}
+
+async function queryPublished(
+	db: D1Database,
+	table: string,
+	columns: string[],
+): Promise<Row[] | null> {
 	try {
 		const { results } = await db
-			.prepare(`SELECT ${columns.join(", ")} FROM ${table} WHERE status = 'published'`)
+			.prepare(
+				`SELECT ${columns.map(quoteIdentifier).join(", ")} FROM ${quoteIdentifier(table)} WHERE status = 'published'`,
+			)
 			.all();
 		return results as Row[];
 	} catch (error) {
-		// Table may not exist yet (fresh database before first seed)
-		console.warn(`[search-index] skipping ${table}:`, String(error));
-		return [];
+		if (isMissingTableError(error)) {
+			// A fresh database may not have been seeded yet. Crucially, the caller
+			// does not treat an unscanned table as an empty authoritative source.
+			console.warn({ event: "search_index_table_missing", table });
+			return null;
+		}
+		throw error;
 	}
 }
 
@@ -46,33 +72,39 @@ interface EntryDocs {
 	doc: SearchDoc;
 }
 
-async function collectDocs(db: D1Database): Promise<EntryDocs[]> {
-	const sources: Array<{ table: string; collection: string; columns: string[] }> = [
-		{
-			table: "ec_posts",
-			collection: "posts",
-			columns: ["id", "slug", "title", "excerpt", "content", "title_en", "excerpt_en", "content_en"],
-		},
-		{ table: "ec_pages", collection: "pages", columns: ["id", "slug", "title", "content"] },
-		{
-			table: "ec_activities",
-			collection: "activities",
-			columns: ["id", "slug", "title", "date", "kind", "url", "description"],
-		},
-	];
+interface CollectedDocs {
+	docs: EntryDocs[];
+	scannedCollections: Set<ContentCollection>;
+}
 
+async function collectDocs(db: D1Database): Promise<CollectedDocs> {
 	const docs: EntryDocs[] = [];
-	for (const source of sources) {
-		const rows = await queryPublished(db, source.table, source.columns);
+	const scannedCollections = new Set<ContentCollection>();
+	for (const collection of CONTENT_COLLECTIONS) {
+		const contract = getContentContract(collection);
+		let rows: Row[] | null;
+		try {
+			rows = await queryPublished(db, contract.table, getContentQueryColumns(collection));
+		} catch (error) {
+			console.error({
+				event: "search_index_query_failed",
+				collection,
+				table: contract.table,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			throw error;
+		}
+		if (rows === null) continue;
+		scannedCollections.add(collection);
 		for (const row of rows) {
 			const entryId = typeof row.id === "string" ? row.id : "";
 			const slug = typeof row.slug === "string" ? row.slug : "";
-			for (const doc of buildEntryDocs(source.collection, slug, row)) {
+			for (const doc of buildEntryDocs(collection, slug, row)) {
 				docs.push({ entryId, doc });
 			}
 		}
 	}
-	return docs;
+	return { docs, scannedCollections };
 }
 
 async function listAllItems(search: AiSearchInstance) {
@@ -93,7 +125,7 @@ async function listAllItems(search: AiSearchInstance) {
 /** Reconcile published content into the AI Search instance. Idempotent. */
 export async function syncSearchIndex(env: SearchIndexEnv): Promise<void> {
 	if (!env.SEARCH) return;
-	const docs = await collectDocs(env.DB);
+	const { docs, scannedCollections } = await collectDocs(env.DB);
 	const existing = await listAllItems(env.SEARCH);
 	const existingByKey = new Map(existing.map((item) => [item.key, item]));
 	const wantedKeys = new Set(docs.map(({ doc }) => doc.key));
@@ -112,10 +144,11 @@ export async function syncSearchIndex(env: SearchIndexEnv): Promise<void> {
 
 	let deleted = 0;
 	for (const item of existing) {
-		if (!wantedKeys.has(item.key)) {
-			await env.SEARCH.items.delete(item.id);
-			deleted++;
-		}
+		const collection = item.metadata?.collection;
+		if (typeof collection !== "string" || !isContentCollection(collection)) continue;
+		if (!scannedCollections.has(collection) || wantedKeys.has(item.key)) continue;
+		await env.SEARCH.items.delete(item.id);
+		deleted++;
 	}
 
 	if (uploaded > 0 || deleted > 0) {

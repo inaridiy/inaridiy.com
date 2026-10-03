@@ -19,8 +19,8 @@ const [postsResult, activitiesResult] = await Promise.all([
 	}),
 ]);
 const { entries: posts, cacheHint } = postsResult;
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
-if (Astro.cache?.enabled) Astro.cache.set(activitiesResult.cacheHint);
+Astro.cache.set(cacheHint);
+Astro.cache.set(activitiesResult.cacheHint);
 
 function toDate(value: string | Date): Date {
 	return value instanceof Date ? value : new Date(value);

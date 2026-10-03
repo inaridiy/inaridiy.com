@@ -1,51 +1,16 @@
 ---
-import { getEmDashCollection } from "emdash";
+import ActivityList from "../../components/ActivityList.astro";
 import Base from "../../layouts/Base.astro";
+import { getAllPublishedActivities } from "../../utils/activities";
 
-const { entries: activities, cacheHint } = await getEmDashCollection("activities", {
-	status: "published",
-	orderBy: { date: "desc" },
-	limit: 200,
-});
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
-
-interface ActivityRow {
-	title: string;
-	date: Date;
-	kind: string | null;
-	url: string | null;
-	description: string | null;
-}
-
-function toDate(value: string | Date): Date {
-	return value instanceof Date ? value : new Date(value);
-}
-
-const rows: ActivityRow[] = activities
-	.map((a) => ({
-		title: (a.data.title_en as string | null) || a.data.title,
-		// Runtime shape can be a Date or an ISO string depending on the driver
-		date: toDate(a.data.date as string | Date),
-		kind: (a.data.kind as string | null) ?? null,
-		url: (a.data.url as string | null) ?? null,
-		description:
-			(a.data.description_en as string | null) ||
-			(a.data.description as string | null) ||
-			null,
-	}))
-	.sort((a, b) => b.date.getTime() - a.date.getTime());
-
-const byYear = new Map<number, ActivityRow[]>();
-for (const row of rows) {
-	const year = row.date.getUTCFullYear();
-	if (!byYear.has(year)) byYear.set(year, []);
-	byYear.get(year)!.push(row);
-}
+const { entries, cacheHints } = await getAllPublishedActivities();
+for (const cacheHint of cacheHints) Astro.cache.set(cacheHint);
 ---
 
 <Base
 	title="Activities"
 	description="Activity log"
+	canonical={`${Astro.url.origin}/en/activities`}
 	lang="en"
 	alternates={[
 		{ hreflang: "ja", path: "/activities" },
@@ -54,96 +19,9 @@ for (const row of rows) {
 	]}
 >
 	<h1 class="page-title">Activities</h1>
-
-	{rows.length === 0 && <p class="empty">No activities yet.</p>}
-
-	{
-		[...byYear.entries()].map(([year, items]) => (
-			<section class="year-section">
-				<h2 class="year">{year}</h2>
-				<ul class="activity-list">
-					{items.map((item) => (
-						<li class="activity-row">
-							<span class="activity-date">
-								{String(item.date.getUTCMonth() + 1).padStart(2, "0")}
-							</span>
-							{item.kind && <span class="activity-kind">[{item.kind}]</span>}
-							<span class="activity-body">
-								{item.url ? (
-									<a href={item.url} target="_blank" rel="noopener noreferrer">
-										{item.title}
-									</a>
-								) : (
-									<span>{item.title}</span>
-								)}
-								{item.description && (
-									<span class="activity-desc"> — {item.description}</span>
-								)}
-							</span>
-						</li>
-					))}
-				</ul>
-			</section>
-		))
-	}
+	<ActivityList activities={entries} lang="en" />
 </Base>
 
 <style>
-	.page-title {
-		font-size: var(--font-size-xl);
-		margin-bottom: var(--spacing-6);
-	}
-
-	.empty {
-		color: var(--color-text-secondary);
-	}
-
-	.year-section {
-		margin-bottom: var(--spacing-6);
-	}
-
-	.year {
-		font-size: var(--font-size-base);
-		color: var(--color-muted);
-		font-family: var(--font-mono);
-		margin-bottom: var(--spacing-2);
-		border-bottom: 1px solid var(--color-border-subtle);
-		padding-bottom: var(--spacing-1);
-	}
-
-	.activity-list {
-		list-style: none;
-	}
-
-	.activity-row {
-		display: flex;
-		gap: var(--spacing-2);
-		padding: var(--spacing-1) 0;
-		line-height: var(--leading-normal);
-	}
-
-	.activity-date {
-		font-family: var(--font-mono);
-		font-size: var(--font-size-sm);
-		color: var(--color-muted);
-		flex-shrink: 0;
-		padding-top: 1px;
-	}
-
-	.activity-kind {
-		font-family: var(--font-mono);
-		font-size: var(--font-size-sm);
-		color: var(--color-text-secondary);
-		flex-shrink: 0;
-		padding-top: 1px;
-	}
-
-	.activity-body {
-		min-width: 0;
-	}
-
-	.activity-desc {
-		color: var(--color-text-secondary);
-		font-size: var(--font-size-sm);
-	}
+	.page-title { font-size: var(--font-size-xl); margin-bottom: var(--spacing-6); }
 </style>

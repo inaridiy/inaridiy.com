@@ -4,9 +4,9 @@ import type { PluginDescriptor } from "emdash";
  * Newsletter plugin (descriptor).
  *
  * Readers subscribe with an email address (double opt-in); when a post is
- * published for the first time, every confirmed subscriber gets a plain
- * text notification. Emails go through EmDash's email pipeline, i.e. the
- * email-sender transport (Cloudflare Email Sending) — no extra keys.
+ * published for the first time, a resumable campaign creates one delivery
+ * record per confirmed subscriber. EmDash's email pipeline persists each
+ * message to Cloudflare Queues before this plugin marks it queued.
  *
  * Public routes: subscribe / confirm / unsubscribe. The site pages under
  * /newsletter/* provide the human-facing confirm/unsubscribe UX.
@@ -21,7 +21,14 @@ export function newsletterPlugin(): PluginDescriptor {
 		capabilities: ["content:read", "email:send"],
 		storage: {
 			subscribers: {
-				indexes: ["email", "status", "token", "createdAt"],
+				indexes: ["status", "token", "createdAt", "confirmedAt"],
+				uniqueIndexes: ["email"],
+			},
+			campaigns: {
+				indexes: ["status", "createdAt", "updatedAt"],
+			},
+			deliveries: {
+				indexes: ["campaignId", "subscriberId", "status", "nextAttemptAt"],
 			},
 		},
 		adminPages: [{ path: "/newsletter", label: "Newsletter", icon: "mail" }],

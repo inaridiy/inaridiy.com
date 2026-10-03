@@ -1,0 +1,139 @@
+---
+interface Props {
+	siteTitle: string;
+	lang: "ja" | "en";
+	isLoggedIn: boolean;
+}
+
+const { siteTitle, lang, isLoggedIn } = Astro.props;
+---
+
+<header class="site-header">
+	<nav class="nav">
+		<a href="/" class="site-title">{siteTitle}</a>
+		<div class="nav-links">
+			{
+				lang === "ja" ? (
+					<>
+						<a href="/posts">blog</a>
+						<a href="/about">about</a>
+						<a href="/en">en</a>
+					</>
+				) : (
+					<>
+						<a href="/en">blog</a>
+						<a href="/en/about">about</a>
+						<a href="/">ja</a>
+					</>
+				)
+			}
+			{isLoggedIn && <a href="/_emdash/admin">admin</a>}
+		</div>
+		<form method="get" action="/search" class="site-search">
+			<input
+				type="search"
+				name="q"
+				placeholder="search..."
+				class="site-search-input"
+				aria-label="Search"
+			/>
+		</form>
+	</nav>
+</header>
+
+<script>
+	document.addEventListener("keydown", (event) => {
+		if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+			event.preventDefault();
+			document.querySelector<HTMLInputElement>(".site-search-input")?.focus();
+		}
+	});
+</script>
+
+<style>
+	.site-header {
+		border-bottom: 1px solid var(--color-border-subtle);
+	}
+
+	.nav {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-4);
+		max-width: var(--wide-width);
+		margin: 0 auto;
+		padding: 0 var(--spacing-5);
+		height: var(--nav-height);
+	}
+
+	.site-title {
+		font-weight: 700;
+		color: var(--color-text);
+		letter-spacing: var(--tracking-snug);
+		white-space: nowrap;
+	}
+
+	.site-title:hover {
+		color: var(--color-brand);
+	}
+
+	.nav-links {
+		display: flex;
+		column-gap: var(--spacing-4);
+		font-size: var(--font-size-sm);
+	}
+
+	.nav-links a {
+		color: var(--color-text-secondary);
+	}
+
+	.nav-links a:hover {
+		color: var(--color-brand);
+	}
+
+	.site-search {
+		margin-inline-start: auto;
+	}
+
+	.site-search-input {
+		width: var(--search-input-width);
+		padding: var(--spacing-1) var(--spacing-2);
+		font-family: var(--font-body);
+		font-size: var(--font-size-sm);
+		border: 1px solid var(--input);
+		border-radius: var(--radius);
+		background: var(--color-bg);
+		color: var(--color-text);
+		transition:
+			border-color var(--transition-fast),
+			box-shadow var(--transition-fast);
+	}
+
+	.site-search-input::placeholder {
+		color: var(--color-muted);
+	}
+
+	.site-search-input:focus,
+	.site-search-input:focus-visible {
+		outline: none;
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px var(--color-brand-ring);
+	}
+
+	@media (max-width: 640px) {
+		.nav {
+			flex-wrap: wrap;
+			height: auto;
+			padding: var(--spacing-2) var(--spacing-4);
+			row-gap: var(--spacing-1);
+		}
+
+		.site-search {
+			width: 100%;
+			margin-inline-start: 0;
+		}
+
+		.site-search-input {
+			width: 100%;
+		}
+	}
+</style>

@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { portableTextToMarkdown } from "emdash/client";
 import type { PortableTextBlock } from "emdash";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
@@ -24,11 +25,14 @@ interface Settings {
 }
 
 async function readSettings(ctx: PluginContext): Promise<Settings> {
+	// v0.1 stored the PAT in plugin KV. Delete it eagerly on every settings
+	// read so an upgrade purges the plaintext value without a separate job.
+	await ctx.kv.delete("settings:token");
 	return {
 		enabled: (await ctx.kv.get<boolean>("settings:enabled")) ?? true,
 		repo: (await ctx.kv.get<string>("settings:repo")) ?? "",
 		branch: (await ctx.kv.get<string>("settings:branch")) || "main",
-		token: (await ctx.kv.get<string>("settings:token")) ?? "",
+		token: (env as Partial<Env>).GITHUB_EXPORT_TOKEN ?? "",
 	};
 }
 
@@ -128,7 +132,7 @@ async function exportEntry(collection: string, id: string, ctx: PluginContext): 
 	const settings = await readSettings(ctx);
 	if (!settings.enabled) return;
 	if (!settings.repo || !settings.token) {
-		ctx.log.info("github-export: not configured (set repo/token in Admin -> GitHub Export)");
+		ctx.log.info("github-export: not configured (set repo in Admin and GITHUB_EXPORT_TOKEN)");
 		return;
 	}
 
@@ -143,23 +147,49 @@ async function exportEntry(collection: string, id: string, ctx: PluginContext): 
 	const body = format.body
 		? portableTextToMarkdown((item.data[format.body] as PortableTextBlock[]) ?? [])
 		: "";
-	const text = serializeEntry({ slug: item.slug, status: item.status, fields, body }, format.fields);
+	const text = serializeEntry(
+		{ cmsId: id, slug: item.slug, status: item.status, fields, body },
+		format.fields,
+	);
 	const path = `${format.dir}/${item.slug}.md`;
 
 	try {
+		const previousPath = await ctx.kv.get<string>(`state:path:${id}`);
 		const existing = await getFile(ctx, settings, path);
-		if (existing?.text === text) return;
-		await putFile(
-			ctx,
-			settings,
-			path,
-			text,
-			existing?.sha,
-			`sync: ${path} from CMS [cms-sync]`,
-		);
+		let wrote = false;
+		if (existing?.text !== text) {
+			await putFile(
+				ctx,
+				settings,
+				path,
+				text,
+				existing?.sha,
+				`sync: ${path} from CMS [cms-sync]`,
+			);
+			wrote = true;
+		}
+		if (previousPath && previousPath !== path) {
+			const previous = await getFile(ctx, settings, previousPath);
+			if (previous) {
+				await deleteFile(
+					ctx,
+					settings,
+					previousPath,
+					previous.sha,
+					`sync: rename ${previousPath} to ${path} from CMS [cms-sync]`,
+				);
+			}
+		}
 		await ctx.kv.set(`state:path:${id}`, path);
-		await recordResult(ctx, { ok: true, action: "export", path });
-		ctx.log.info(`github-export: committed ${path}`);
+		if (wrote || previousPath !== path) {
+			await recordResult(ctx, {
+				ok: true,
+				action: previousPath && previousPath !== path ? "rename" : "export",
+				path,
+				...(previousPath && previousPath !== path ? { previousPath } : {}),
+			});
+			ctx.log.info(`github-export: synced ${path}`);
+		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		await recordResult(ctx, { ok: false, action: "export", path, error: message });
@@ -208,7 +238,7 @@ async function settingsBlocks(ctx: PluginContext) {
 			{ type: "header", text: "GitHub Export" },
 			{
 				type: "context",
-				text: "Commits posts, pages, and activities to the repo as content/<collection>/<slug>.md the moment they change. Token: fine-grained PAT with Contents read/write on this one repository.",
+				text: "Commits posts, pages, and activities to content/<collection>/<slug>.md. The fine-grained PAT is read only from the GITHUB_EXPORT_TOKEN Wrangler secret.",
 			},
 			...(configured
 				? []
@@ -216,7 +246,7 @@ async function settingsBlocks(ctx: PluginContext) {
 						{
 							type: "banner",
 							title: "Not configured",
-							description: "Set the repository and a GitHub token to enable export.",
+							description: "Set the repository below and run `wrangler secret put GITHUB_EXPORT_TOKEN`.",
 							variant: "alert",
 						},
 					]),
@@ -232,7 +262,6 @@ async function settingsBlocks(ctx: PluginContext) {
 						initial_value: settings.repo,
 					},
 					{ type: "text_input", action_id: "branch", label: "Branch", initial_value: settings.branch },
-					{ type: "secret_input", action_id: "token", label: "GitHub token (fine-grained PAT)" },
 				],
 				submit: { label: "Save", action_id: "save_settings" },
 			},
@@ -303,9 +332,7 @@ export default {
 					await ctx.kv.set("settings:repo", String(values.repo ?? "").trim());
 					await ctx.kv.set("settings:branch", String(values.branch ?? "").trim() || "main");
 					await ctx.kv.delete("settings:pathPrefix");
-					const token = String(values.token ?? "").trim();
-					// Empty secret input means "keep the stored token"
-					if (token !== "") await ctx.kv.set("settings:token", token);
+					await ctx.kv.delete("settings:token");
 					return {
 						...(await settingsBlocks(ctx)),
 						toast: { message: "Settings saved", type: "success" },

@@ -3,14 +3,17 @@ import { getEmDashCollection, getSiteSettings } from "emdash";
 
 import { resolveBlogSiteIdentity } from "../utils/site-identity";
 
-export const GET: APIRoute = async ({ site, url }) => {
-	const siteUrl = site?.toString() || url.origin;
+export const GET: APIRoute = async ({ cache, site, url }) => {
+	const siteUrl = site?.origin ?? url.origin;
 	const { siteTitle, siteTagline } = resolveBlogSiteIdentity(await getSiteSettings());
 
-	const { entries: posts } = await getEmDashCollection("posts", {
+	const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
+		status: "published",
 		orderBy: { published_at: "desc" },
 		limit: 20,
 	});
+	cache.set(cacheHint);
+	cache.set({ maxAge: 3600, swr: 86400 });
 
 	const items = posts
 		.map((post) => {
@@ -32,6 +35,9 @@ export const GET: APIRoute = async ({ site, url }) => {
 		.filter(Boolean)
 		.join("\n");
 
+	const lastBuildDate =
+		posts.find((post) => post.data.publishedAt)?.data.publishedAt?.toUTCString() ??
+		new Date(0).toUTCString();
 	const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
@@ -40,7 +46,7 @@ export const GET: APIRoute = async ({ site, url }) => {
     <link>${siteUrl}</link>
     <atom:link href="${siteUrl}/rss.xml" rel="self" type="application/rss+xml"/>
     <language>ja</language>
-    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+    <lastBuildDate>${lastBuildDate}</lastBuildDate>
 ${items}
   </channel>
 </rss>`;

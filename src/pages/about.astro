@@ -1,16 +1,17 @@
 ---
 import { getEmDashEntry } from "emdash";
-import { PortableText } from "emdash/ui";
+import ContentPage from "../components/ContentPage.astro";
 import Base from "../layouts/Base.astro";
-import CodeBlock from "../components/CodeBlock.astro";
 
 const { entry: page, cacheHint } = await getEmDashEntry("pages", "about");
-if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
+Astro.cache.set(cacheHint);
 ---
 
 <Base
 	title={page?.data.title ?? "About"}
 	description="自己紹介"
+	canonical={`${Astro.url.origin}/about`}
+	markdownUrl="/about.md"
 	alternates={[
 		{ hreflang: "ja", path: "/about" },
 		{ hreflang: "en", path: "/en/about" },
@@ -20,60 +21,18 @@ if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
 >
 	{
 		page ? (
-			<article class="page">
-				<h1 class="page-title" {...page.edit.title}>
-					{page.data.title}
-				</h1>
-				<div class="page-content">
-					<PortableText
-						value={page.data.content}
-						components={{ type: { code: CodeBlock } }}
-					/>
-				</div>
-			</article>
+			<ContentPage
+				title={page.data.title}
+				content={page.data.content}
+				titleEdit={page.edit.title}
+			/>
 		) : (
 			<section class="empty">
-				<h1 class="page-title">About</h1>
-				<p>
-					「about」スラッグのページがまだありません。
-					<a href="/_emdash/admin">管理画面</a>で作成してください。
-				</p>
+				<h1>About</h1>
+				<p>「about」スラッグのページがまだありません。<a href="/_emdash/admin">管理画面</a>で作成してください。</p>
 			</section>
 		)
 	}
 </Base>
 
-<style>
-	.page {
-		max-width: var(--content-width);
-	}
-
-	.page-title {
-		font-size: var(--font-size-xl);
-		margin-bottom: var(--spacing-6);
-	}
-
-	.page-content {
-		line-height: var(--leading-relaxed);
-	}
-
-	.page-content :global(p) {
-		margin-bottom: 1.4em;
-	}
-
-	.page-content :global(h2) {
-		font-size: var(--font-size-lg);
-		margin-top: 2em;
-		margin-bottom: 0.6em;
-	}
-
-	.page-content :global(ul),
-	.page-content :global(ol) {
-		margin-bottom: 1.4em;
-		padding-left: 1.5em;
-	}
-
-	.empty {
-		color: var(--color-text-secondary);
-	}
-</style>
+<style>.empty { color: var(--color-text-secondary); }</style>

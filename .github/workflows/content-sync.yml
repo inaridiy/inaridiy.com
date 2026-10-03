@@ -50,6 +50,18 @@ jobs:
         env:
           EMDASH_URL: ${{ secrets.EMDASH_URL }}
           EMDASH_REFRESH_TOKEN: ${{ secrets.EMDASH_REFRESH_TOKEN }}
+      - name: Commit CMS identity metadata
+        run: |
+          git add content/
+          if git diff --cached --quiet; then
+            echo "No identity metadata changes"
+          else
+            git config user.name "content-sync[bot]"
+            git config user.email "noreply@users.noreply.github.com"
+            git commit -m "sync: persist CMS content identities [cms-sync]"
+            git pull --rebase origin main
+            git push
+          fi
 
   pull-from-cms:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'pull'

@@ -2,6 +2,7 @@
 import { getEmDashEntry, decodeSlug } from "emdash";
 import { PortableText } from "emdash/ui";
 import Base from "../../layouts/Base.astro";
+import { descriptionFromContent } from "../../utils/description";
 
 const slug = decodeSlug(Astro.params.slug);
 if (!slug) return Astro.redirect("/404");
@@ -11,11 +12,12 @@ if (slug === "about") return Astro.redirect("/about");
 
 const { entry: page, cacheHint } = await getEmDashEntry("pages", slug);
 if (!page) return Astro.redirect("/404");
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+Astro.cache.set(cacheHint);
 ---
 
 <Base
 	title={page.data.title}
+	description={descriptionFromContent(page.data.content, page.data.title)}
 	content={{ collection: "pages", id: page.data.id, slug }}
 >
 	<article class="page">

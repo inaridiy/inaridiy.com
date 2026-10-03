@@ -26,12 +26,13 @@ export const COLLECTIONS = {
 };
 
 /**
- * @param {{ slug: string, status: string, fields: Record<string, string>, body: string }} entry
+ * @param {{ cmsId?: string, slug: string, status: string, fields: Record<string, string>, body: string }} entry
  * @param {string[]} fieldOrder
  * @returns {string}
  */
 export function serializeEntry(entry, fieldOrder) {
 	const lines = ["---"];
+	if (entry.cmsId) lines.push(`cms_id: ${JSON.stringify(entry.cmsId)}`);
 	lines.push(`slug: ${JSON.stringify(entry.slug)}`);
 	lines.push(`status: ${JSON.stringify(entry.status)}`);
 	for (const field of fieldOrder) {
@@ -44,11 +45,12 @@ export function serializeEntry(entry, fieldOrder) {
 /**
  * @param {string} text
  * @param {string} fallbackSlug
- * @returns {{ slug: string, status: string, fields: Record<string, string>, body: string }}
+ * @returns {{ cmsId?: string, slug: string, status: string, fields: Record<string, string>, body: string }}
  */
 export function parseEntry(text, fallbackSlug) {
 	const match = text.match(/^---\n([\s\S]*?)\n---\n?/);
 	const fields = {};
+	let cmsId;
 	let slug = fallbackSlug;
 	let status = "published";
 	let body = text;
@@ -67,10 +69,11 @@ export function parseEntry(text, fallbackSlug) {
 					/* keep raw */
 				}
 			}
-			if (key === "slug") slug = value;
+			if (key === "cms_id" && typeof value === "string" && value) cmsId = value;
+			else if (key === "slug" && typeof value === "string") slug = value;
 			else if (key === "status") status = value;
 			else fields[key] = value;
 		}
 	}
-	return { slug, status, fields, body: body.trim() };
+	return { cmsId, slug, status, fields, body: body.trim() };
 }

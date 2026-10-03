@@ -12,7 +12,7 @@ const { entries: posts, cacheHint } = await getEmDashCollection("posts", {
 	where: { category: term.slug },
 	orderBy: { published_at: "desc" },
 });
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+Astro.cache.set(cacheHint);
 ---
 
 <Base title={term.label} description={`カテゴリ「${term.label}」の記事`}>

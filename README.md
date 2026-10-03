@@ -1,210 +1,181 @@
 # inaridiy.com
 
-[EmDash](https://emdashcms.com) (Astro ベースの CMS) で構築した個人ブログ。Cloudflare Workers 上で動作し、D1 / R2 / AI Search / AI Gateway を利用する。
+[EmDash](https://emdashcms.com) と Astro で構築した、HackerNews風のテキスト中心ブログ。Cloudflare Workers上でSSRし、D1、R2、Workers AI、AI Search、Queues、Email SendingをBinding経由で利用する。日本語が原文で、`/en/` は自動英訳フィールドを日本語fallback付きで表示する。
 
-## 構成
+## 概要
 
 | 要素 | 実装 |
 | --- | --- |
-| CMS / フレームワーク | EmDash + Astro (SSR, `output: "server"`) |
-| ホスティング | Cloudflare Workers (`wrangler deploy`) |
-| データベース | Cloudflare D1 (`DB` バインディング) |
-| メディア | Cloudflare R2 (`MEDIA` バインディング) |
-| 検索 | Cloudflare AI Search (旧 AutoRAG) + EmDash 全文検索 (FTS) |
-| 自動英訳 | 自作プラグイン `plugins/translator` — AI Gateway 経由で LLM を呼ぶ |
-| スタイル | shadcn/ui 互換 CSS 変数体系 (`src/styles/theme.css`) |
+| CMS / Web | EmDash 0.28 + Astro 7 (`output: "server"`) |
+| Runtime | Cloudflare Workers |
+| Content / Media | D1 (`DB`) / R2 (`MEDIA`) |
+| キャッシュ | Workers Cache (edge HTML, tag purge) + KV object cache (`CACHE`) |
+| 検索 | AI Search (`SEARCH`) + EmDash FTS fallback |
+| 翻訳 | Workers AI (`AI`)、任意でAI Gateway経由 |
+| メール | Cloudflare Queue (`EMAIL_QUEUE`) → Email Sending (`EMAIL`) |
+| Rate limit | Cloudflare Rate Limiting bindings (`AI_RATE_LIMITER`, `NEWSLETTER_RATE_LIMITER`) |
+| Styling | shadcn/ui互換CSS変数、Inter + JetBrains Mono |
 
-### ページ
+主なページは `/`、`/posts`、`/posts/[slug]`、`/activities`、`/about`、`/search`、`/en/...`、`/rss.xml`。管理画面は `/_emdash/admin`。
 
-| パス | 内容 |
-| --- | --- |
-| `/` | 最新記事の HN 風リスト + 直近の活動歴 |
-| `/posts` `/posts/[slug]` | 記事一覧・記事詳細 |
-| `/activities` | 活動歴の全リスト (年ごとにグループ表示、フッターとトップからリンク) |
-| `/about` | 自己紹介 (`pages` コレクションの `about` スラッグ) |
-| `/search` | 全文検索 + AI 検索 (「AI に聞く」)。ヘッダーの検索欄から遷移 |
-| `/en/...` | 自動英訳版 (`/en`, `/en/posts/[slug]`, `/en/activities`, `/en/about`) |
-| `/rss.xml` | RSS フィード |
-| `/_emdash/admin` | 管理画面 |
+## セットアップ
 
-ヘッダーは `サイト名 / blog / about / en` + 検索欄のみ。ナビは `src/layouts/Base.astro` にハードコード (CMS のメニュー機能は SNS リンク用の `social` メニューのみ使用)。
-
-### コンテンツスキーマ (`seed/seed.json`)
-
-- `posts` — `title` / `content` / `excerpt` / `featured_image` (OGP 用) + 自動英訳用の `title_en` / `excerpt_en` / `content_en`
-- `pages` — `title` / `content` + `title_en` / `content_en`
-- `activities` — `title` / `date` / `kind` / `url` / `description` + `title_en` / `description_en`
-
-`*_en` フィールドは翻訳プラグインが書き込む。管理画面から手修正も可能。
-
-## ローカル開発
+Node.js 24とpnpm 11を使用する。
 
 ```bash
 pnpm install
-npx emdash dev        # migrations + seed + 型生成 + dev サーバー (localhost:4321)
+npx emdash dev
 ```
 
+- サイト: `http://localhost:4321`
 - 管理画面: `http://localhost:4321/_emdash/admin`
-- 開発用ログインバイパス: `http://localhost:4321/_emdash/api/setup/dev-bypass?redirect=/_emdash/admin`
-- 型の再生成: `npx emdash types` / `npx wrangler types`
-- 検証: `pnpm typecheck` / `pnpm build`
+- 開発ログイン: `http://localhost:4321/_emdash/api/setup/dev-bypass?redirect=/_emdash/admin`
 
-シードは「DB が空の初回リクエスト時」に自動適用される。スキーマだけ入ってコンテンツが入らなかった場合は手動で適用できる:
+`emdash dev` はmigration、seed、EmDash型生成を行う。Worker Binding型を更新するときは `pnpm exec wrangler types` を実行する。実環境の作成、Secret、初回deployは [docs/operations.md](docs/operations.md) を参照。
 
-```bash
-# ローカル (workerd の D1 実体に直接適用)
-npx emdash seed seed/seed.json -d .wrangler/state/v3/d1/miniflare-D1DatabaseObject/<hash>.sqlite
-```
-
-## デプロイ手順
+## コマンド
 
 ```bash
-wrangler login
-
-# 1. D1 データベースを作成し、返ってきた id を wrangler.jsonc の database_id に貼る
-wrangler d1 create inaridiy-com
-
-# 2. メディア用 R2 バケット
-wrangler r2 bucket create inaridiy-media
-
-# 3. 暗号化キー (ローカルの .env の EMDASH_ENCRYPTION_KEY と同じ形式)
-wrangler secret put EMDASH_ENCRYPTION_KEY
-
-# 4. デプロイ
-pnpm deploy           # = astro build && wrangler deploy
+pnpm dev                  # Astro dev server
+pnpm typecheck            # Astro diagnostics
+pnpm typecheck:workspaces # 共有契約 + 全自作pluginのtsc
+pnpm test                 # Node 24 unit tests
+pnpm build                # production build
+pnpm check                # 上記の検査 + build
+pnpm content:pull         # CMS → content/**/*.md
+pnpm content:push         # content/**/*.md → CMS
+pnpm deploy               # build + wrangler deploy
 ```
 
-初回アクセスでセットアップウィザードが起動し、パスキーで管理者を作成する。シードも同時に適用される。
+## 手動確認
 
-## AI Search (検索) の有効化
+変更後はまず `pnpm check` を通し、`npx emdash dev` で次を確認する。
 
-1. ダッシュボードで AI Search の API トークンを作成: **AI > AI Search > Tokens**
-2. インスタンスを作成:
+1. `/`、`/posts`、記事詳細、`/activities`、`/about` が表示される。
+2. 対応する `/en/` ページで英訳が使われ、未翻訳時は現在の日本語へfallbackする。
+3. `/search?q=test` がローカルではFTSへ安全にfallbackし、内部例外を表示しない。
+4. Footerの購読フォームが中立な成功・失敗メッセージを返す。
+5. AdminのGitHub Exportにtoken入力欄がなく、`GITHUB_EXPORT_TOKEN` Secretの案内だけが出る。
 
-   ```bash
-   wrangler ai-search create inaridiy-blog-search --type builtin \
-     --hybrid-search true \
-     --custom-metadata url:text --custom-metadata title:text \
-     --custom-metadata lang:text --custom-metadata collection:text \
-     --custom-metadata hash:text
-   ```
-
-3. `wrangler.jsonc` の `ai_search` バインディングのコメントを外し、`npx wrangler types` を実行して再デプロイ。
-
-仕組み: インデックス登録は**イベント駆動**。`plugins/search-sync` プラグインが記事の公開/更新/非公開/削除フックで、対象エントリを Markdown 化して AI Search の組み込みストレージへ即時 upsert / 削除する (自動英訳より後の priority で動くので、同一リクエスト内で `*_en` も反映される)。cron (毎時 0 分、`src/worker.ts` → `src/search-index.ts`) は取りこぼし用の照合バックストップ。`/search` の「AI に聞く」は `chatCompletions` (RAG 回答) と `search` (出典リンク) を並列で呼ぶ。バインディングが無い環境では自動的に全文検索へフォールバックする。
-
-## 自動英訳
-
-**Workers AI 専用・ゼロ設定。** 既定モデルは `@cf/google/gemma-4-26b-a4b-it`。AI バインディングを直接呼ぶためキーもアカウント ID も不要。設定は **Admin > Translator** の 3 項目だけ:
-
-- **Enabled** — オン/オフ
-- **Workers AI model** — Workers AI のモデル id (`wrangler ai models` で一覧)。書き換えるだけで切替
-- **AI Gateway ID** (任意) — 設定するとその AI Gateway 経由でルーティング (分析/キャッシュ)。無くても動く
-
-仕組み: 記事の公開/更新時に `content:afterSave` / `content:afterPublish` フックが発火し、本文を翻訳して `*_en` フィールドへ書き戻す。日本語ソースのハッシュを KV に保存し、本文が変わっていなければ再翻訳しない (Translator 管理画面からキャッシュのリセット可)。コードブロックとインラインコードは翻訳対象外。長文は 40 セグメントずつ分割して翻訳する。
-
-## OGP 画像の自動生成
-
-`featured_image` の無い記事は `/og/posts/<スラッグ>.png` (EN は `?lang=en`) が og:image になる。白背景 + 太字タイトル + サイト名 + 日付だけの 1200×630 PNG を satori + resvg で動的生成。日本語フォント (Noto Sans JP) はタイトルの文字だけ Google Fonts からサブセット取得してエッジキャッシュする。
-
-## 正規オリジン (inaridiy.com)
-
-絶対 URL (認証メールのリンク等) は次の優先順で決まる: DB の `emdash:site_url` 設定 (管理画面 Settings / セットアップ時に保存) → `astro.config.mjs` の `emdash({ siteUrl })` → リクエストオリジン。**セットアップウィザードを workers.dev 上で完了すると DB に workers.dev が保存される罠がある** (修正済み)。加えて worker が `*.workers.dev` へのリクエストを apex に 301 する。
-
-## 記事の Markdown 管理 / GitHub 同期
-
-コンテンツの実体は `content/` 以下の Markdown:
-
-- `content/posts/*.md` — frontmatter: `slug` / `status` / `title` / `excerpt` + 本文
-- `content/pages/*.md` — frontmatter: `slug` / `status` / `title` + 本文
-- `content/activities/*.md` — frontmatter のみ (`title` / `date` / `kind` / `url` / `description`)EmDash 公式クライアントの Portable Text ⇄ Markdown 変換(標準ブロックはロスレス往復、未知ブロックは `<!--ec:block ... -->` フェンスで保全)を使うため、独自変換は持たない。
+本番Bindingを含む非破壊の構成確認:
 
 ```bash
-pnpm content:pull   # CMS → content/posts/*.md
-pnpm content:push   # content/posts/*.md → CMS (--prune でローカルに無い記事を削除)
+pnpm exec wrangler types --check
+pnpm check:deploy
 ```
 
-- push は slug をキーに upsert。新規は create→publish、更新は `_rev` による楽観ロック付き update→publish。無変更はスキップ(冪等)
-- **API 経由の公開でもフックは発火する**ので、git から push した記事も自動英訳・AI Search 登録される
-- `*_en` フィールドは翻訳プラグインの管轄なので同期対象外。タクソノミーは管理画面で管理
+## コンテンツ契約
 
-同期は両方向とも**イベント駆動**:
+`seed/seed.json` のコレクション:
 
-- **git → CMS**: `content/**` への push で GitHub Actions (`.github/workflows/content-sync.yml`) が `content:push` を実行
-- **CMS → git**: `plugins/github-export` プラグインが記事の保存/公開/非公開/削除の瞬間に、GitHub Contents API で `content/posts/<slug>.md` をコミット(コミットメッセージの `[cms-sync]` マーカーで Actions 側はスキップされ、ループしない)
-- 手動の `pull` は復旧用として workflow_dispatch に残してある(定期実行なし)
+- `posts`: `title`, `excerpt`, `content`, `featured_image` + `title_en`, `excerpt_en`, `content_en`
+- `pages`: `title`, `content` + `title_en`, `content_en`
+- `activities`: `title`, `date`, `kind`, `url`, `description` + `title_en`, `description_en`
 
-エディタについて: この構成では **Markdown の編集は手元のエディタ(VSCode など)や GitHub 上で行う**のが主経路。管理画面の WYSIWYG (ProseMirror) で直した内容も即座に Markdown としてコミットされるので破綻しない。エージェントからは MCP サーバー / `emdash content` CLI 経由で Markdown のまま読み書きできる。管理画面自体に生 Markdown エディタを載せるにはネイティブプラグイン(React)が必要(未実装・必要なら追加可)。
+翻訳map、AI Search projection、D1照合列は `packages/content-contract` に集約している。translator、イベント駆動search-sync、毎時のD1 reconciliationが同じ契約を読む。英語のpostだけでなくpageとactivityも検索対象になる。
 
-## 記事内のコード・数式・GitHub 埋め込み
+すべてのCMSクエリページは返された `cacheHint` を `Astro.cache.set()` へ渡す。Activity一覧はcursorを最後まで追い、各ページのcache tagを合成する。
 
-- **シンタックスハイライト**: shiki (純 JS エンジン、Workers 対応) によるサーバーサイドハイライト。対応言語は `src/lib/shiki.ts` の LANGS(TS/JS/Python/Rust/Go/Solidity など。追加もそこで)
-- **GitHub 埋め込み**: ` ```github ` フェンスの中に blob permalink を書くと、該当行を取得してハイライト付きスニペット + ソースリンクとして表示
+## Markdown / CMS同期
 
-  ````markdown
-  ```github
-  https://github.com/owner/repo/blob/main/src/file.ts#L10-L25
-  ```
-  ````
+`content/posts`、`content/pages`、`content/activities` はCMSのMarkdownミラー。frontmatterの共通identityは次の通り。
 
-  ※ 公開リポジトリのみ (private は raw が 404 になり URL がそのまま表示される)
-- **KaTeX 数式**: `$...$` / `$$...$$` / `\(...\)` / `\[...\]`。数式を含む記事だけ katex の JS/CSS がクライアントで読み込まれる
-
-## ニュースレター (Email 購読)
-
-フッターのフォームから購読(**ダブルオプトイン**: 確認メールのリンクで確定)。記事の**初回公開時に1度だけ**、購読者全員へプレーンテキストの通知メールを送る(再編集・再公開では送られない)。配信は EmDash のメールパイプライン経由 = Cloudflare Email Sending。
-
-- 購読者一覧・送信履歴: **Admin → Newsletter**
-- 確認/解除ページ: `/newsletter/confirm` `/newsletter/unsubscribe`
-- スパム対策: メール形式検証、確認メールの再送は24時間に1回、購読状況の照会不可(列挙防止)
-
-## メール受信 (Email Routing)
-
-`contact@inaridiy.com` と `inari@inaridiy.com` への受信メールは Gmail へ転送される(ルールは `wrangler email routing rules list inaridiy.com` で確認)。
-
-## メール送信 (Cloudflare Email Sending)
-
-EmDash のメール(認証メール、コメント通知、プラグインからの `ctx.email.send()`)は `plugins/email-sender` が **Cloudflare Email Sending** で配送する。API キー不要(`send_email` Worker バインディング、inaridiy.com はオンボード済み)。
-
-- 送信元は `noreply@inaridiy.com`(`wrangler.jsonc` の `allowed_sender_addresses` で制限。変える場合は両方更新)
-- 差出人名・アドレスは管理画面 **Admin → Email Sender** で変更可能
-- 有効化: デプロイ後に管理画面 **Settings → Email** でプロバイダとして email-sender を選択
-- 配送はデプロイ環境のみ(ローカルで実送信したい場合は binding に `"remote": true` を付ける)
-
-## トークン設定まとめ
-
-| どこに | 何を | 用途 / 作り方 |
-| --- | --- | --- |
-| GitHub リポジトリシークレット `EMDASH_URL` | サイト URL | Actions の git→CMS push 先 |
-| GitHub リポジトリシークレット `EMDASH_REFRESH_TOKEN` | EmDash リフレッシュトークン | デプロイ後に `npx emdash login --url <サイト>` → `~/.config/emdash/auth.json` の `refreshToken` を登録。90 日有効、期限切れ時は再ログイン |
-| 管理画面 Admin → GitHub Export | GitHub fine-grained PAT | CMS→git コミット用。github.com/settings/personal-access-tokens で **このリポジトリのみ・Contents: Read and write** に絞って発行 |
-| 管理画面 Admin → Translator | (トークン不要) | Workers AI バインディング直呼びのためキー無し。Gateway ID は任意 |
-| Wrangler シークレット `EMDASH_ENCRYPTION_KEY` | 暗号化キー | 管理画面で保存するシークレット (PAT 等) の暗号化に使用 |
-
-すべての PAT / トークンは最小権限で: GitHub PAT は単一リポジトリ + Contents のみ、EmDash トークンは自サイトのみ、AI Gateway キーは Gateway 側に置いてコードや git には一切入れない。
-
-## スタイルシステム
-
-`src/styles/theme.css` に **shadcn/ui 互換の CSS 変数** (`--background` / `--foreground` / `--primary` / `--secondary` / `--muted` / `--accent` / `--destructive` / `--border` / `--input` / `--ring` / `--radius` / `--chart-*`) をライト・ダーク両対応 (`light-dark()`) で定義し、EmDash テンプレートのトークン (`--color-*`) をそこへマッピングしている。
-
-- 配色やラディウスの変更は theme.css の shadcn 変数を書き換えるだけ (1 箇所)
-- 将来 shadcn/ui や Tailwind のコンポーネントを導入する場合も同じ変数がそのまま使える
-- `src/styles/tokens.css` と `src/layouts/Base.astro` は直接編集しない (テンプレートの規約)
-
-## ディレクトリ
-
+```yaml
+---
+cms_id: "01..." # CMS ULID。stable identity
+slug: "example"
+status: "published"
+---
 ```
-content/posts/          記事の Markdown ミラー (git が実体)
-plugins/email-sender/   Cloudflare Email Sending トランスポート (email:deliver)
-plugins/translator/     自動英訳プラグイン (pnpm workspace)
-plugins/search-sync/    AI Search イベント駆動同期プラグイン (docs.ts は cron と共有)
-plugins/github-export/  CMS→git イベント駆動コミット (format.mjs はスクリプトと共有)
-scripts/content-sync.mjs  git⇄CMS 同期スクリプト (content:pull / content:push)
-.github/workflows/      content-sync (git→CMS push、手動 pull)
-seed/seed.json          スキーマ + 初期コンテンツ
-src/layouts/Base.astro  共通レイアウト (ヘッダー / フッター / テーマ切替)
-src/pages/              ルーティング (en/ 以下が英語版)
-src/search-index.ts     AI Search 照合バックストップ (毎時 cron)
-src/worker.ts           Worker エントリ (EmDash + cron 合成)
-src/styles/theme.css    スタイルシステム (shadcn 互換トークン)
+
+- git → CMS: `.github/workflows/content-sync.yml` が `content:push` を実行する。
+- CMS → git: `plugins/github-export` がContents APIで即時commitする。
+- `cms_id` を先に照合し、slug変更は同じentryのrenameとして扱う。
+- CMS側renameは新パスを書いてから記憶済みの旧パスを削除する。
+- 旧形式のIDなしファイルはslugで一度だけ照合し、次回push/pullでIDを追記する。
+- `*_en` とtaxonomyは同期しない。翻訳pluginとAdminが所有する。
+
+`content:push --prune` はローカルに対応IDがないCMS entryを削除するため、通常運用では明示的に必要な場合だけ使う。
+
+## 翻訳
+
+`plugins/translator` は公開済みentryの日本語sourceをWorkers AIで英訳する。既定modelは `@cf/google/gemma-4-26b-a4b-it`、AI Gateway IDはAdminで任意設定できる。
+
+- 入力はsegment数だけでなくserialized文字数でも分割する。
+- 応答は同数・同順序・非空stringだけのJSON arrayに限定する。
+- finish reason、token usage、response shapeを構造化して記録する。
+- entryごとのleaseで重複hookを抑え、source更新後の古い結果は破棄する。
+- changed sourceの翻訳に失敗した場合は古い`*_en`を消し、英語ページを現行日本語fallbackへ戻す。
+- code blockとinline codeは翻訳しない。
+
+## キャッシュ
+
+3層構成。コンテンツ変更は即時purgeされ、TTLはfallbackに過ぎない。
+
+1. **Workers Cache** (`wrangler.jsonc` の `"cache"`): Workerの前段のedge cache。公開HTMLは `routeRules` (astro.config.mjs) の `CDN-Cache-Control: max-age=300, stale-while-revalidate=86400` と、EmDash cacheHint由来の `Cache-Tag` (collection名 + entry ULID) を返す。`plugins/cache-purge` がcontent hookから `cache.purge({ tags })` (`cloudflare:workers`、zone tokenは不要) を呼ぶ。
+2. **KV object cache** (`CACHE` binding): EmDashのD1 query結果cache (`objectCache: kvCache(...)`)。invalidationはEmDash内蔵。
+3. **D1 read replication** (`session: "auto"`): 読み取りを近隣replicaへ。
+
+制約:
+
+- Astro route cachingは `cache.provider` が無いと無効で、`Astro.cache.set` はno-opになる。providerは `src/lib/workers-cache-provider.ts`。**`onRequest` を実装しない**こと — 実装するとAstroが `Cache-Tag` / `CDN-Cache-Control` を最終responseから剥がし、edge cacheが機能しなくなる。
+- browserには `src/middleware.ts` が `Cache-Control: public, max-age=0, must-revalidate` を付け、常にedgeへ再検証させる (purge後のstale HTML防止)。
+- `/search` はvisitor cookieとrate limitを持つため `private, no-store`。
+- routeを追加したら明示的な `Cache-Control` を返すこと。無いとWorkers Cacheのheuristic freshness (200は約2時間) で勝手にcacheされる。
+- loginしたままsiteを見ると、cacheされた匿名variant (editing toolbar無し) が返ることがある (edge cacheはCookieを見ない)。保存・公開すればpurgeされる。
+
+## 検索とRate Limiting
+
+`plugins/search-sync` がpublish/save/unpublish/deleteをAI Searchへ反映し、`src/search-index.ts` が毎時D1と照合する。照合時に読めなかったcollectionは削除権限を持たず、既知の「table未作成」以外のD1 errorは処理全体を中断する。外部・所有不明のAI Search itemも削除しない。
+
+`/search` は300文字まで。AI Searchを呼ぶ前に公式 `AI_RATE_LIMITER.limit({ key })` を、HttpOnly visitor IDごとに実行する。Binding障害・上限超過・AI Search障害ではproviderを呼ばずFTSへfallbackし、利用者には分類済みの一般メッセージだけを返す。
+
+Rate Limiting Bindingはcolo単位・eventually consistentなabuse guardであり、厳密な課金カウンタではない。
+
+## Newsletter / Email
+
+Footer購読はdouble opt-in。購読要求は正規化emailのSHA-256をkeyに、公式 `NEWSLETTER_RATE_LIMITER` で制限する。email storageにはunique indexと短い送信leaseがあり、同時初回登録による重複確認メールを抑える。
+
+記事公開hookは一括送信せず、campaignを1件作るだけ。5分ごとのEmDash cronがbounded pageで購読者を列挙し、campaign/subscriberごとのdelivery outboxを作る。状態は `pending` / `failed` / `queued` / `dead` / `skipped` で、失敗は上限まで再試行される。
+
+EmDashの全メールは次の経路を通る。
+
+```text
+ctx.email.send → email-sender → EMAIL_QUEUE → Worker queue() → EMAIL.send
 ```
+
+Queueへの永続化成功後だけnewsletter deliveryを`queued`にする。consumerは成功時に個別`ack()`、失敗時にbackoff付き`retry()`を行い、上限後は `inaridiy-email-dlq` へ移る。配信はat-least-onceであり、provider受理直後のprocess crashでは重複し得る。
+
+## GitHub Secret
+
+CMS → git用PATはplugin KVへ保存しない。`wrangler secret put GITHUB_EXPORT_TOKEN` で設定し、Adminではrepositoryとbranchだけを保存する。upgrade後のsettings readは旧 `settings:token` を削除する。
+
+## UI / Styling
+
+- Paletteとradiusは `src/styles/theme.css` のshadcn変数だけを変更する。
+- `src/styles/tokens.css` は編集しない。
+- 色は`light-dark()`でlight/dark両対応。OG cardはサイトに合わせたdark card。
+- JA/ENの記事、About、Activityは共有view componentを使う。
+- `Base.astro` はmetadataとEmDash page contributionを組み、header/footerは `SiteHeader.astro` / `SiteFooter.astro` が担当する。
+- text-first、1 accent、dense listを維持し、hero/card/live-search dropdownは加えない。
+
+## 主要ディレクトリ
+
+```text
+packages/content-contract/  translation/search/D1の共有契約
+plugins/translator/         Workers AI翻訳
+plugins/search-sync/        event-driven AI Search同期
+plugins/github-export/      CMS → GitHub Contents API
+plugins/newsletter/         double opt-in + durable campaign/outbox
+plugins/email-sender/       Queue producer
+plugins/cache-purge/        content変更時のWorkers Cache tag purge
+content/                    CMS Markdown mirror
+scripts/content-sync.mjs    Git ↔ CMS同期
+src/email-queue.ts          Queue consumer
+src/search-index.ts         hourly reconciliation
+src/components/             JA/EN共有view、header/footer
+tests/                      pure contract / failure-path tests
+.github/workflows/          quality + content sync
+```
+
+運用上の不変条件と障害時の挙動は [docs/specs/2026-07-19-content-pipelines.md](docs/specs/2026-07-19-content-pipelines.md) に記録している。

@@ -9,6 +9,9 @@
 		"./sandbox": "./src/sandbox-entry.ts",
 		"./docs": "./src/docs.ts"
 	},
+	"dependencies": {
+		"@inaridiy/content-contract": "workspace:*"
+	},
 	"peerDependencies": {
 		"emdash": "^0.28.1"
 	}

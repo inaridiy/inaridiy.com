@@ -1,0 +1,114 @@
+---
+/**
+ * HN-flavoured like widget: ▲ button + total count.
+ *
+ * Post pages are edge-cached, so nothing is server-rendered here — the count
+ * is fetched client-side from /api/likes/[slug] (no-store). Hidden until the
+ * first successful fetch, so with JS off the widget simply never appears.
+ * One IP can like a post at most 5 times (enforced server-side).
+ */
+interface Props {
+	slug: string;
+	lang?: "ja" | "en";
+}
+
+const { slug, lang = "ja" } = Astro.props;
+const label = lang === "en" ? "Like this post" : "この記事にいいね";
+---
+
+<div class="like" data-like-widget data-slug={slug}>
+	<button type="button" class="like-button" data-like-button aria-label={label} disabled>
+		▲
+	</button>
+	<span class="like-count" data-like-count aria-live="polite"></span>
+</div>
+
+<script>
+	const MAX_LIKES = 5;
+
+	interface Counts {
+		total: number;
+		mine: number;
+	}
+
+	async function requestCounts(slug: string, method: "GET" | "POST"): Promise<Counts> {
+		const res = await fetch(`/api/likes/${encodeURIComponent(slug)}`, { method });
+		if (!res.ok) throw new Error(`likes ${method} failed: ${res.status}`);
+		const data: unknown = await res.json();
+		const counts = data as Partial<Counts>;
+		if (typeof counts.total !== "number" || typeof counts.mine !== "number") {
+			throw new Error("likes: unexpected payload");
+		}
+		return counts as Counts;
+	}
+
+	for (const widget of document.querySelectorAll<HTMLElement>("[data-like-widget]")) {
+		const slug = widget.dataset.slug;
+		const button = widget.querySelector<HTMLButtonElement>("[data-like-button]");
+		const count = widget.querySelector<HTMLElement>("[data-like-count]");
+		if (!slug || !button || !count) continue;
+
+		const render = ({ total, mine }: Counts) => {
+			count.textContent = String(total);
+			widget.classList.toggle("is-liked", mine > 0);
+			widget.classList.add("is-ready");
+			button.disabled = mine >= MAX_LIKES;
+		};
+
+		button.addEventListener("click", async () => {
+			button.disabled = true;
+			try {
+				render(await requestCounts(slug, "POST"));
+			} catch {
+				// Rate limited or transient failure — allow another attempt.
+				button.disabled = false;
+			}
+		});
+
+		requestCounts(slug, "GET")
+			.then(render)
+			.catch(() => {
+				/* Widget stays hidden — acceptable. */
+			});
+	}
+</script>
+
+<style>
+	.like {
+		max-width: var(--content-width);
+		margin-top: var(--spacing-8);
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-2);
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		visibility: hidden;
+	}
+	.like.is-ready {
+		visibility: visible;
+	}
+	.like-button {
+		background: none;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		padding: var(--spacing-1) var(--spacing-2);
+		font-size: var(--font-size-xs);
+		line-height: 1;
+		color: var(--color-muted);
+		cursor: pointer;
+	}
+	.like-button:hover:not(:disabled) {
+		color: var(--color-brand);
+		border-color: var(--color-brand);
+	}
+	.like.is-liked .like-button {
+		color: var(--color-brand);
+		border-color: var(--color-brand);
+	}
+	.like-button:disabled {
+		cursor: default;
+	}
+	.like-count {
+		font-variant-numeric: tabular-nums;
+	}
+</style>

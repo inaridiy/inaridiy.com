@@ -1,0 +1,188 @@
+---
+interface SocialMenu {
+	items: Array<{ label: string; url: string; target?: string | null }>;
+}
+
+interface Props {
+	lang: "ja" | "en";
+	siteTagline: string | null;
+	socialMenu?: SocialMenu | null;
+}
+
+const { lang, siteTagline, socialMenu } = Astro.props;
+---
+
+<footer class="site-footer">
+	<div class="footer-inner">
+		<form class="newsletter-form" data-newsletter>
+			<label class="newsletter-label" for="newsletter-email">
+				{lang === "ja" ? "新着記事をメールで受け取る" : "Get new posts by email"}
+			</label>
+			<div class="newsletter-row">
+				<input
+					id="newsletter-email"
+					type="email"
+					name="email"
+					required
+					placeholder="you@example.com"
+					class="newsletter-input"
+				/>
+				<button type="submit" class="newsletter-button">
+					{lang === "ja" ? "購読" : "Subscribe"}
+				</button>
+			</div>
+			<p class="newsletter-status" data-newsletter-status aria-live="polite"></p>
+		</form>
+		<nav class="footer-links">
+			{
+				socialMenu?.items.map((item) => (
+					<a
+						href={item.url}
+						target={item.target ?? undefined}
+						rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
+					>
+						{item.label}
+					</a>
+				))
+			}
+			<a href="/rss.xml">rss</a>
+			<a href={lang === "en" ? "/en/activities" : "/activities"}>activities</a>
+		</nav>
+		{siteTagline && <p class="footer-copyright">{siteTagline}</p>}
+	</div>
+</footer>
+
+<script>
+	const form = document.querySelector<HTMLFormElement>("[data-newsletter]");
+	const status = document.querySelector<HTMLElement>("[data-newsletter-status]");
+	const isJa = document.documentElement.lang !== "en";
+	form?.addEventListener("submit", async (event) => {
+		event.preventDefault();
+		if (!status) return;
+		const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
+		const email = new FormData(form).get("email");
+		status.textContent = "...";
+		if (button) button.disabled = true;
+		try {
+			const response = await fetch("/_emdash/api/plugins/newsletter/subscribe", {
+				method: "POST",
+				headers: { "content-type": "application/json", "X-EmDash-Request": "1" },
+				body: JSON.stringify({ email }),
+			});
+			const result = (await response.json()) as {
+				data?: { ok?: boolean; error?: string };
+			};
+			if (result.data?.ok) {
+				status.textContent = isJa
+					? "確認メールを送りました。メール内のリンクで購読が完了します。"
+					: "Check your inbox — click the link to confirm.";
+				form.reset();
+			} else if (result.data?.error === "rate_limited") {
+				status.textContent = isJa
+					? "試行回数が多すぎます。1分ほど待ってから再度お試しください。"
+					: "Too many attempts. Please wait a minute and try again.";
+			} else {
+				status.textContent = isJa ? "登録に失敗しました。" : "Subscription failed.";
+			}
+		} catch {
+			status.textContent = isJa ? "登録に失敗しました。" : "Subscription failed.";
+		} finally {
+			if (button) button.disabled = false;
+		}
+	});
+</script>
+
+<style>
+	.site-footer {
+		border-top: 1px solid var(--color-border-subtle);
+	}
+
+	.footer-inner {
+		max-width: var(--wide-width);
+		margin: 0 auto;
+		padding: var(--spacing-4) var(--spacing-5);
+		font-size: var(--font-size-sm);
+	}
+
+	.newsletter-form {
+		margin-bottom: var(--spacing-4);
+		max-width: 360px;
+	}
+
+	.newsletter-label {
+		display: block;
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+		margin-bottom: var(--spacing-1);
+	}
+
+	.newsletter-row {
+		display: flex;
+		gap: var(--spacing-2);
+	}
+
+	.newsletter-input {
+		flex: 1;
+		min-width: 0;
+		padding: var(--spacing-1) var(--spacing-2);
+		font-family: var(--font-body);
+		font-size: var(--font-size-sm);
+		border: 1px solid var(--input);
+		border-radius: var(--radius);
+		background: var(--color-bg);
+		color: var(--color-text);
+	}
+
+	.newsletter-input:focus {
+		outline: none;
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px var(--color-brand-ring);
+	}
+
+	.newsletter-button {
+		padding: var(--spacing-1) var(--spacing-3);
+		font-size: var(--font-size-sm);
+		font-family: var(--font-body);
+		background: var(--secondary);
+		color: var(--secondary-foreground);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		cursor: pointer;
+	}
+
+	.newsletter-button:hover {
+		color: var(--color-brand);
+	}
+
+	.newsletter-button:disabled {
+		cursor: wait;
+		opacity: 0.65;
+	}
+
+	.newsletter-status {
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+		margin-top: var(--spacing-1);
+		min-height: 1em;
+	}
+
+	.footer-links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-4);
+		margin-bottom: var(--spacing-2);
+	}
+
+	.footer-links a {
+		color: var(--color-text-secondary);
+	}
+
+	.footer-links a:hover {
+		color: var(--color-brand);
+	}
+
+	.footer-copyright {
+		color: var(--color-muted);
+		font-size: var(--font-size-xs);
+	}
+</style>
