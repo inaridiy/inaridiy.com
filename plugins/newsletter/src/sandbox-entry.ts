@@ -133,51 +133,11 @@ async function sendConfirmEmail(ctx: PluginContext, subscriber: Subscriber): Pro
 }
 
 async function ensureCampaignCron(ctx: PluginContext): Promise<void> {
-	if (ctx.cron) {
-		await ctx.cron.schedule(CAMPAIGN_CRON, { schedule: CAMPAIGN_SCHEDULE });
+	if (!ctx.cron) {
+		ctx.log.warn("newsletter: cron scheduler unavailable; campaigns will not dispatch");
 		return;
 	}
-	// emdash 0.28.x never wires ctx.cron on Cloudflare production builds
-	// (virtual:emdash/scheduler exports `createScheduler = null` there, and the
-	// context factory only creates CronAccess when a scheduler exists), even
-	// though the Worker's minute cron trigger DOES execute due rows in
-	// _emdash_cron_tasks. Without this fallback no campaign ever dispatches.
-	// TRUSTED-ONLY: registers the task directly through the D1 binding,
-	// mirroring CronAccessImpl.schedule's upsert (never clobbers a running
-	// task). Remove once emdash >= 0.31.0, where ctx.cron is always wired.
-	const db = (env as Partial<Env>).DB;
-	if (!db) {
-		ctx.log.warn(
-			"newsletter: cron scheduler unavailable and no DB binding; campaigns will not dispatch",
-		);
-		return;
-	}
-	try {
-		await db
-			.prepare(
-				`INSERT INTO _emdash_cron_tasks (id, plugin_id, task_name, schedule, is_oneshot, data, next_run_at, status, enabled)
-				VALUES (?1, ?2, ?3, ?4, 0, NULL, ?5, 'idle', 1)
-				ON CONFLICT (plugin_id, task_name) DO UPDATE SET
-					schedule = ?4,
-					is_oneshot = 0,
-					status = CASE WHEN _emdash_cron_tasks.status = 'running' THEN 'running' ELSE 'idle' END,
-					locked_at = CASE WHEN _emdash_cron_tasks.status = 'running' THEN _emdash_cron_tasks.locked_at ELSE NULL END,
-					enabled = 1`,
-			)
-			.bind(
-				crypto.randomUUID(),
-				ctx.plugin.id,
-				CAMPAIGN_CRON,
-				CAMPAIGN_SCHEDULE,
-				new Date().toISOString(),
-			)
-			.run();
-		ctx.log.info("newsletter: campaign cron registered via D1 fallback (ctx.cron unavailable)");
-	} catch (error) {
-		ctx.log.error(
-			`newsletter: campaign cron registration failed: ${error instanceof Error ? error.message : String(error)}`,
-		);
-	}
+	await ctx.cron.schedule(CAMPAIGN_CRON, { schedule: CAMPAIGN_SCHEDULE });
 }
 
 interface ContentEvent {
