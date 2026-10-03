@@ -6,9 +6,10 @@ import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
  * Double-opt-in subscriptions and resumable new-post campaigns.
  *
  * A publish hook only records a campaign. A bounded EmDash cron sweep creates
- * per-subscriber outbox rows and hands each email to the email-sender plugin,
- * which persists it to Cloudflare Queues. A campaign is complete only after
- * every eligible subscriber has a terminal delivery state.
+ * per-subscriber outbox rows and sends each email through EmDash's email
+ * pipeline (Cloudflare Email Sending). The outbox row is the durable record:
+ * failed sends are retried with backoff until MAX_SEND_ATTEMPTS. A campaign
+ * is complete only after every eligible subscriber has a terminal state.
  */
 
 const SITE_URL = "https://inaridiy.com";
@@ -17,7 +18,7 @@ const CAMPAIGN_CRON = "newsletter-dispatch";
 const CAMPAIGN_SCHEDULE = "*/5 * * * *";
 const SUBSCRIBER_PAGE_SIZE = 50;
 const RETRY_PAGE_SIZE = 20;
-const MAX_ENQUEUE_ATTEMPTS = 8;
+const MAX_SEND_ATTEMPTS = 8;
 const RESEND_THROTTLE_MS = 24 * 60 * 60 * 1000;
 const CONFIRM_LEASE_MS = 5 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -45,13 +46,16 @@ interface Campaign {
 	enumerationComplete: boolean;
 	createdAt: string;
 	updatedAt: string;
-	queued: number;
+	sent: number;
+	/** Pre-2026-10 campaigns counted Queue hand-offs under this name. */
+	queued?: number;
 	failed: number;
 	dead: number;
 	skipped: number;
 }
 
-type DeliveryStatus = "pending" | "failed" | "queued" | "dead" | "skipped";
+/** "queued" is the legacy name of "sent" from the Queue-backed transport. */
+type DeliveryStatus = "pending" | "failed" | "sent" | "queued" | "dead" | "skipped";
 
 interface Delivery {
 	campaignId: string;
@@ -199,7 +203,7 @@ async function createCampaign(event: ContentEvent, ctx: PluginContext): Promise<
 		enumerationComplete: false,
 		createdAt: now,
 		updatedAt: now,
-		queued: 0,
+		sent: 0,
 		failed: 0,
 		dead: 0,
 		skipped: 0,
@@ -217,7 +221,7 @@ function deliveryId(campaignId: string, subscriberId: string): string {
 	return `${campaignId}:${subscriberId}`;
 }
 
-async function enqueueDelivery(
+async function sendDelivery(
 	id: string,
 	delivery: Delivery,
 	campaign: Campaign,
@@ -261,23 +265,23 @@ async function enqueueDelivery(
 			...delivery,
 			to: "",
 			unsubscribeToken: "",
-			status: "queued",
+			status: "sent",
 			attempts,
 			updatedAt: now,
 			lastError: undefined,
 		});
 	} catch (error) {
-		const dead = attempts >= MAX_ENQUEUE_ATTEMPTS;
+		const dead = attempts >= MAX_SEND_ATTEMPTS;
 		await deliveries(ctx).put(id, {
 			...delivery,
 			status: dead ? "dead" : "failed",
 			attempts,
 			nextAttemptAt: retryAt(attempts),
 			updatedAt: now,
-			lastError: error instanceof Error ? error.message.slice(0, 200) : "enqueue_failed",
+			lastError: error instanceof Error ? error.message.slice(0, 200) : "send_failed",
 		});
 		ctx.log.error(
-			`newsletter: enqueue failed for delivery ${id} (attempt ${attempts}/${MAX_ENQUEUE_ATTEMPTS})`,
+			`newsletter: send failed for delivery ${id} (attempt ${attempts}/${MAX_SEND_ATTEMPTS})`,
 		);
 	}
 }
@@ -292,7 +296,7 @@ async function retryDeliveries(campaignId: string, campaign: Campaign, ctx: Plug
 		limit: RETRY_PAGE_SIZE,
 	});
 	for (const item of page.items) {
-		await enqueueDelivery(item.id, item.data, campaign, ctx);
+		await sendDelivery(item.id, item.data, campaign, ctx);
 	}
 }
 
@@ -326,10 +330,10 @@ async function enumerateSubscribers(
 			createdAt: now,
 			updatedAt: now,
 		};
-		// This is the outbox write. A crash after Queue.send may cause a retry,
-		// which is the deliberate at-least-once side of avoiding silent loss.
+		// This is the outbox write. A crash after the provider accepted the
+		// message may cause a retry: deliberate at-least-once, never silent loss.
 		await deliveries(ctx).put(id, delivery);
-		await enqueueDelivery(id, delivery, campaign, ctx);
+		await sendDelivery(id, delivery, campaign, ctx);
 	}
 
 	return {
@@ -347,7 +351,8 @@ async function refreshCampaignCounts(
 	ctx: PluginContext,
 ): Promise<Campaign> {
 	const store = deliveries(ctx);
-	const [queued, failed, pending, dead, skipped] = await Promise.all([
+	const [sent, legacyQueued, failed, pending, dead, skipped] = await Promise.all([
+		store.count({ campaignId, status: "sent" }),
 		store.count({ campaignId, status: "queued" }),
 		store.count({ campaignId, status: "failed" }),
 		store.count({ campaignId, status: "pending" }),
@@ -361,7 +366,8 @@ async function refreshCampaignCounts(
 	return {
 		...campaign,
 		status,
-		queued,
+		sent: sent + legacyQueued,
+		queued: undefined,
 		failed: failed + pending,
 		dead,
 		skipped,
@@ -389,7 +395,7 @@ async function dispatchNextCampaign(ctx: PluginContext): Promise<void> {
 		at: refreshed.updatedAt,
 		post: refreshed.slug,
 		status: refreshed.status,
-		queued: refreshed.queued,
+		sent: refreshed.sent,
 		failed: refreshed.failed,
 		dead: refreshed.dead,
 		skipped: refreshed.skipped,
@@ -441,7 +447,7 @@ async function adminBlocks(ctx: PluginContext) {
 			},
 			{
 				type: "context",
-				text: "Double opt-in signup. New-post campaigns resume in bounded cron batches; each email is persisted to Cloudflare Queues before being counted as queued.",
+				text: "Double opt-in signup. New-post campaigns resume in bounded cron batches; every delivery is an outbox row, and failed sends retry with backoff.",
 			},
 		],
 	};
@@ -527,11 +533,11 @@ export default {
 						confirmSentAt: now,
 						confirmLeaseUntil: undefined,
 					});
-					ctx.log.info(`newsletter: confirmation queued for subscriber ${recordId}`);
+					ctx.log.info(`newsletter: confirmation sent for subscriber ${recordId}`);
 					return { ok: true };
 				} catch {
 					await subscribers(ctx).put(recordId, { ...record, confirmLeaseUntil: undefined });
-					ctx.log.error(`newsletter: confirmation enqueue failed for subscriber ${recordId}`);
+					ctx.log.error(`newsletter: confirmation send failed for subscriber ${recordId}`);
 					return { ok: false, error: "send_failed" };
 				}
 			},

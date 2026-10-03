@@ -5,8 +5,8 @@ import type { PluginDescriptor } from "emdash";
  *
  * Readers subscribe with an email address (double opt-in); when a post is
  * published for the first time, a resumable campaign creates one delivery
- * record per confirmed subscriber. EmDash's email pipeline persists each
- * message to Cloudflare Queues before this plugin marks it queued.
+ * record per confirmed subscriber and sends it through EmDash's email
+ * pipeline, retrying failed sends from that outbox.
  *
  * Public routes: subscribe / confirm / unsubscribe. The site pages under
  * /newsletter/* provide the human-facing confirm/unsubscribe UX.

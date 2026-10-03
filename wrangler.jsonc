@@ -17,7 +17,7 @@
 		"nodejs_compat"
 	],
 	// Workers Cache: edge cache in front of the Worker. Public pages opt in
-	// via CDN-Cache-Control (astro.config routeRules) + Cache-Tag headers;
+	// via Cloudflare-CDN-Cache-Control (astro.config routeRules) + Cache-Tag;
 	// plugins/cache-purge purges tags on content changes. EmDash admin/API
 	// send `private, no-store` and are never stored.
 	"cache": {
@@ -60,34 +60,14 @@
 			"instance_name": "inaridiy-blog-search",
 		},
 	],
-	// Cloudflare Email Sending (inaridiy.com is onboarded). Used by the
-	// email-sender plugin as EmDash's email transport.
+	// Cloudflare Email Sending (inaridiy.com is onboarded). EmDash's
+	// cloudflareEmail() provider (astro.config.mjs) sends through it.
 	"send_email": [
 		{
 			"name": "EMAIL",
 			"allowed_sender_addresses": ["noreply@inaridiy.com"],
 		},
 	],
-	// All EmDash email is persisted before delivery. Provision the producer
-	// queue once with: wrangler queues create inaridiy-email
-	"queues": {
-		"producers": [
-			{
-				"binding": "EMAIL_QUEUE",
-				"queue": "inaridiy-email",
-			},
-		],
-		"consumers": [
-			{
-				"queue": "inaridiy-email",
-				"max_batch_size": 10,
-				"max_batch_timeout": 5,
-				"max_retries": 5,
-				"dead_letter_queue": "inaridiy-email-dlq",
-				"max_concurrency": 2,
-			},
-		],
-	},
 	// Cloudflare Rate Limiting bindings are per-location abuse controls. The
 	// namespace IDs are deliberately unique within this account.
 	"ratelimits": [

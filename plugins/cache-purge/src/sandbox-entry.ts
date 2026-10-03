@@ -25,7 +25,7 @@ async function purgeTags(tags: string[], ctx: PluginContext): Promise<void> {
 		}
 	} catch (error) {
 		// Local dev (no Workers Cache API) lands here; deployed pages then
-		// simply age out via their CDN-Cache-Control maxAge/swr.
+		// simply age out via their Cloudflare-CDN-Cache-Control maxAge/swr.
 		ctx.log.info(
 			`cache-purge: skipped (${error instanceof Error ? error.message : String(error)})`,
 		);

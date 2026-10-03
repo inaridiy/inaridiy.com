@@ -6,7 +6,6 @@ import emdashWorker, {
 	PluginBridge,
 	createScheduledHandler,
 } from "@emdash-cms/cloudflare/worker";
-import { deliverEmailBatch } from "./email-queue";
 import { syncSearchIndex } from "./search-index";
 
 const emdashScheduled = createScheduledHandler();
@@ -47,9 +46,6 @@ const worker = {
 				}),
 			);
 		}
-	},
-	async queue(batch: MessageBatch<unknown>, env: Env) {
-		await deliverEmailBatch(batch, env.EMAIL);
 	},
 } satisfies ExportedHandler<Env, unknown>;
 

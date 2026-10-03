@@ -1,10 +1,9 @@
 import cloudflare from "@astrojs/cloudflare";
+import { cacheCloudflare } from "@astrojs/cloudflare/cache";
 import react from "@astrojs/react";
 import { d1, kvCache, r2, sandbox } from "@emdash-cms/cloudflare";
-import { formsPlugin } from "@emdash-cms/plugin-forms";
-import webhookNotifier from "@emdash-cms/plugin-webhook-notifier";
+import { cloudflareEmail } from "@emdash-cms/cloudflare/plugins";
 import { cachePurgePlugin } from "emdash-plugin-cache-purge";
-import { emailSenderPlugin } from "emdash-plugin-email-sender";
 import { githubExportPlugin } from "emdash-plugin-github-export";
 import { newsletterPlugin } from "emdash-plugin-newsletter";
 import { searchSyncPlugin } from "emdash-plugin-search-sync";
@@ -18,9 +17,10 @@ import emdash from "emdash/astro";
 const SITE_URL = "https://inaridiy.com";
 const isDev = process.argv.includes("dev");
 
-// Edge TTL for public HTML (CDN-Cache-Control; browsers get max-age=0 via
-// src/middleware.ts). Short maxAge is only the fallback: plugins/cache-purge
-// purges by Cache-Tag on every content change, so publishes appear instantly.
+// Edge TTL for public HTML (Cloudflare-CDN-Cache-Control; browsers get
+// max-age=0 via src/middleware.ts). Short maxAge is only the fallback: EmDash
+// admin writes and plugins/cache-purge purge by Cache-Tag on every content
+// change, so publishes appear instantly.
 const PAGE_CACHE = { maxAge: 300, swr: 86400 };
 
 export default defineConfig({
@@ -40,17 +40,18 @@ export default defineConfig({
 			// D1 on every request. EmDash invalidates entries on edits itself.
 			objectCache: kvCache({ binding: "CACHE" }),
 			siteUrl: isDev ? undefined : SITE_URL,
-			// searchSync / emailSender are trusted-only (import cloudflare:workers env)
+			// Workspace plugins are trusted-only (they import cloudflare:workers env)
 			plugins: [
-				formsPlugin(),
 				translatorPlugin(),
 				searchSyncPlugin(),
 				githubExportPlugin(),
-				emailSenderPlugin(),
 				newsletterPlugin(),
 				cachePurgePlugin(),
+				// Email Sending through the `EMAIL` send_email binding. Retries for
+				// newsletter mail live in the newsletter outbox.
+				cloudflareEmail({ from: { email: "noreply@inaridiy.com", name: "inaridiy.com" } }),
 			],
-			sandboxed: [webhookNotifier],
+			// Runner for marketplace-installed (sandboxed) plugins
 			sandboxRunner: sandbox(),
 			marketplace: "https://marketplace.emdashcms.com",
 		}),
@@ -71,16 +72,12 @@ export default defineConfig({
 			fallbacks: ["monospace"],
 		},
 	],
-	// Route caching for the Workers Cache sitting in front of this Worker
-	// (wrangler.jsonc "cache"). The provider only exists to activate header
-	// emission and wire Astro.cache.invalidate() to cache.purge() — it must
-	// NOT gain an onRequest (Astro would then strip Cache-Tag/CDN-Cache-Control
-	// from responses and the edge cache would stop working).
+	// Route caching for the Workers Cache in front of this Worker: the
+	// adapter's provider emits Cloudflare-CDN-Cache-Control + Cache-Tag and
+	// wires Astro.cache.invalidate() (called by EmDash admin writes) to
+	// cache.purge().
 	cache: {
-		provider: {
-			name: "workers-cache",
-			entrypoint: new URL("./src/lib/workers-cache-provider.ts", import.meta.url),
-		},
+		provider: cacheCloudflare(),
 	},
 	// Central edge TTLs for public HTML. Pages add Cache-Tags themselves via
 	// Astro.cache.set(cacheHint); rss.xml/og set their own longer maxAge
