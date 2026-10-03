@@ -1,0 +1,38 @@
+{
+	"$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+
+	"slug": "github-sync",
+	// Replace with the publisher's Atmosphere DID before the first release
+	// (`emdash-plugin whoami`). Publishing refuses a DID that is not yours.
+	"publisher": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+
+	"license": "MIT",
+	"author": { "name": "inaridiy", "url": "https://inaridiy.com" },
+	"security": { "url": "https://github.com/inaridiy/inaridiy.com/security/advisories/new" },
+	"name": "GitHub Sync",
+	"description": "Keep your content in a GitHub repo as Markdown: every change is committed instantly, and git pushes can flow back.",
+	"keywords": ["github", "git", "markdown", "backup", "sync"],
+	"repo": "https://github.com/inaridiy/inaridiy.com",
+
+	// Trust contract. Changing it requires a new major version.
+	"capabilities": ["content:read", "schema:read", "network:request"],
+	"allowedHosts": ["api.github.com"],
+	"storage": {},
+
+	"admin": {
+		"pages": [{ "path": "/settings", "label": "GitHub Sync", "icon": "git-branch" }],
+		"settingsSchema": {
+			"repo": { "type": "string", "label": "Repository" },
+			"token": { "type": "secret", "label": "GitHub token" },
+			"branch": { "type": "string", "label": "Branch", "default": "main" },
+			"dir": { "type": "string", "label": "Folder", "default": "content" },
+			"collections": { "type": "string", "label": "Collections" },
+			"includeDrafts": { "type": "boolean", "label": "Include drafts", "default": false },
+			"enabled": { "type": "boolean", "label": "Enabled", "default": true }
+		}
+	},
+
+	"release": {
+		"requires": { "env:emdash": ">=1.1.0" }
+	}
+}

@@ -3,8 +3,8 @@
  * /llms.txt, /llms-full.txt, /posts/<slug>.md, /en/posts/<slug>.md, /about.md.
  *
  * Portable Text -> Markdown reuses the official lossless converter from
- * `emdash/client` — the same one scripts/content-sync.mjs and the
- * github-export plugin build their Markdown files with (headings, nested
+ * `emdash/client` — the same one the github-sync plugin and its CLI build
+ * their Markdown files with (headings, nested
  * lists, links, marks, code fences with language, images; unknown custom
  * blocks survive as opaque `<!--ec:block ... -->` fences).
  */

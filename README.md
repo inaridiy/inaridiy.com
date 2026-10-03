@@ -56,7 +56,7 @@ pnpm run deploy           # build + wrangler deploy (通常はCloudflare Workers
 2. 対応する `/en/` ページで英語entryが使われ、未翻訳時は日本語へfallbackする。言語切替リンクとhreflangが相手entryを指す。
 3. `/search?q=test` と `/search?q=test&lang=en` が結果または分類済みメッセージを返し、内部例外を表示しない (dev はdev用AI Search instanceを使う。index前は0件)。
 4. Footerの購読フォームが中立な成功・失敗メッセージを返す。
-5. AdminのGitHub Exportにtoken入力欄がなく、`GITHUB_EXPORT_TOKEN` Secretの案内だけが出る。
+5. Admin → GitHub Syncで、tokenが暗号化済み表示 (入力欄は空のまま「設定済み」) になっている。
 
 本番Bindingを含む非破壊の構成確認:
 
@@ -92,7 +92,7 @@ status: "published"
 ```
 
 - git → CMS: `.github/workflows/content-sync.yml` が `content:push` を実行する。
-- CMS → git: `plugins/github-export` がContents APIで即時commitする。
+- CMS → git: `plugins/github-sync` (EmDash plugin registryへ公開するsandboxed plugin) が変更のたびにGitHub APIで即時commitする。
 - `cms_id` を先に照合し、slug変更は同じentryのrenameとして扱う。
 - CMS側renameは新パスを書いてから記憶済みの旧パスを削除する。
 - 旧形式のIDなしファイルはslugで一度だけ照合し、次回push/pullでIDを追記する。
@@ -147,9 +147,14 @@ Footer購読はdouble opt-in。購読要求は正規化emailのSHA-256をkeyに�
 
 EmDashの全メールはEmDash公式 `cloudflareEmail()` providerがEmail Sending (`EMAIL` binding) で送る。配信はat-least-onceであり、provider受理直後のprocess crashでは重複し得る。
 
-## GitHub Secret
+## GitHub Sync
 
-CMS → git用PATはplugin KVへ保存しない。`wrangler secret put GITHUB_EXPORT_TOKEN` で設定し、Adminではrepositoryとbranchだけを保存する。upgrade後のsettings readは旧 `settings:token` を削除する。
+`plugins/github-sync` はこのサイトから切り出して公開するsandboxed plugin (`emdash-plugin-github-sync`)。このサイトはworkspace buildを `sandboxed: [githubSync]` で、registryからinstallした場合と同じsandboxで動かす。
+
+- CMS → git: plugin。fine-grained PAT (このrepositoryのContents read/writeのみ) はAdmin → GitHub Syncで入力し、`EMDASH_ENCRYPTION_KEY` で暗号化して保存される。
+- git → CMS: 同packageのCLI (`pnpm content:push` / `content:pull`)。`.github/workflows/content-sync.yml` から実行する。
+- file形式はcollection schemaから導出する (scalar fieldはfrontmatter、最初のPortable Text fieldが本文)。`tests/markdown-format.test.mjs` が既存の `content/**` をbyte単位で再現できることを固定している。
+- 公開手順はplugin側の `README.md` と `emdash-plugin.jsonc` (publisherのDIDを設定してから `emdash-plugin publish`)。
 
 ## UI / Styling
 
@@ -165,11 +170,10 @@ CMS → git用PATはplugin KVへ保存しない。`wrangler secret put GITHUB_EX
 ```text
 packages/content-contract/  locale・翻訳field・公開pathの共有契約
 plugins/translator/         JA → EN翻訳entry (Workflow + Workers AI)
-plugins/github-export/      CMS → GitHub Contents API
+plugins/github-sync/        CMS ↔ GitHub Markdown同期 (registry公開用plugin + CLI)
 plugins/newsletter/         double opt-in + durable campaign/outbox
 plugins/cache-purge/        content変更時のWorkers Cache tag purge
 content/                    CMSの日本語entryのMarkdown mirror
-scripts/content-sync.mjs    Git ↔ CMS同期
 scripts/migrate-native-i18n.mjs  *_en → native i18n移行 (2026-10、実行済み)
 src/translator-workflow.ts  翻訳Workflow
 src/utils/i18n.ts           translation group経由のlink / hreflang解決

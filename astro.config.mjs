@@ -4,7 +4,7 @@ import react from "@astrojs/react";
 import { d1, kvCache, r2, sandbox } from "@emdash-cms/cloudflare";
 import { aiSearch, cloudflareEmail } from "@emdash-cms/cloudflare/plugins";
 import { cachePurgePlugin } from "emdash-plugin-cache-purge";
-import { githubExportPlugin } from "emdash-plugin-github-export";
+import githubSync from "emdash-plugin-github-sync";
 import { newsletterPlugin } from "emdash-plugin-newsletter";
 import { translatorPlugin } from "emdash-plugin-translator";
 import { defineConfig, fontProviders } from "astro/config";
@@ -64,15 +64,17 @@ export default defineConfig({
 						activities: "/{locale}/activities",
 					},
 				}),
-				githubExportPlugin(),
 				newsletterPlugin(),
 				cachePurgePlugin(),
 				// Email Sending through the `EMAIL` send_email binding. Retries for
 				// newsletter mail live in the newsletter outbox.
 				cloudflareEmail({ from: { email: "noreply@inaridiy.com", name: "inaridiy.com" } }),
 			],
-			// Runner for registry-installed (sandboxed) plugins. The hosted
-			// registry is the default catalog once a runner is configured.
+			// GitHub Sync is published to the plugin registry; this site runs the
+			// workspace build in the same sandbox registry installs use.
+			sandboxed: [githubSync],
+			// Runner for sandboxed plugins (config-registered and registry
+			// installs). The hosted registry is the default catalog.
 			sandboxRunner: sandbox(),
 		}),
 	],

@@ -11,7 +11,7 @@
 	// Required secret names are part of generated Env types; values remain in
 	// Wrangler secrets/.env and never enter source control.
 	"secrets": {
-		"required": ["EMDASH_ENCRYPTION_KEY", "GITHUB_EXPORT_TOKEN"],
+		"required": ["EMDASH_ENCRYPTION_KEY"],
 	},
 	"compatibility_flags": [
 		"nodejs_compat"

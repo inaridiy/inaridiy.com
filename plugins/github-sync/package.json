@@ -1,0 +1,63 @@
+{
+	"name": "emdash-plugin-github-sync",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "EmDash plugin: keep content in a GitHub repo as Markdown, synced both ways",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/inaridiy/inaridiy.com.git",
+		"directory": "plugins/github-sync"
+	},
+	"keywords": [
+		"emdash",
+		"emdash-plugin",
+		"github",
+		"markdown",
+		"git"
+	],
+	"main": "dist/index.mjs",
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"types": "./dist/index.d.mts"
+		},
+		"./sandbox": "./dist/plugin.mjs",
+		"./format": {
+			"import": "./src/format.mjs",
+			"types": "./src/format.d.mts"
+		}
+	},
+	"bin": {
+		"emdash-github-sync": "./dist/cli.mjs"
+	},
+	"files": [
+		"dist",
+		"src/format.mjs",
+		"src/format.d.mts",
+		"emdash-plugin.jsonc",
+		"README.md"
+	],
+	"scripts": {
+		"build": "pnpm build:vendor && emdash-plugin build && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.mjs --banner:js='#!/usr/bin/env node'",
+		"build:vendor": "esbuild src/vendor/markdown.entry.ts --bundle --format=esm --platform=neutral --outfile=src/vendor/markdown.mjs",
+		"typecheck": "tsc --noEmit",
+		"test": "emdash-plugin validate && vitest run",
+		"bundle": "emdash-plugin bundle",
+		"publish:registry": "emdash-plugin publish",
+		"release:setup": "emdash-plugin release setup"
+	},
+	"peerDependencies": {
+		"emdash": "^1.1.0"
+	},
+	"devDependencies": {
+		"@emdash-cms/blocks": "1.1.0",
+		"@emdash-cms/plugin-cli": "0.13.2",
+		"@emdash-cms/plugin-test": "0.2.7",
+		"@types/node": "^26.1.1",
+		"emdash": "^1.1.0",
+		"esbuild": "^0.28.1",
+		"typescript": "^5.9.0",
+		"vitest": "^4.1.0"
+	}
+}

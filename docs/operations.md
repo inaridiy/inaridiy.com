@@ -30,7 +30,6 @@ AI Search instanceは作らない。EmDashの `aiSearch()` pluginが `default` n
 
 ```bash
 pnpm exec wrangler secret put EMDASH_ENCRYPTION_KEY
-pnpm exec wrangler secret put GITHUB_EXPORT_TOKEN
 ```
 
 値は対話入力する。`wrangler.jsonc` の `secrets.required` は名前とgenerated typeだけを固定し、値はsource controlへ入れない。ローカル値はignored `.env` に置く。
@@ -41,7 +40,7 @@ pnpm exec wrangler secret put GITHUB_EXPORT_TOKEN
 
 | Secret | 用途 |
 | --- | --- |
-| `EMDASH_URL` / `EMDASH_REFRESH_TOKEN` | `content-sync.yml` |
+| `EMDASH_URL` / `EMDASH_TOKEN` | `content-sync.yml`。`EMDASH_TOKEN` はAdminで作るAPI token (content:read, content:write, schema:read)。`EMDASH_REFRESH_TOKEN` (90日) もfallbackとして読む |
 
 ```bash
 npx emdash login --url https://inaridiy.com # EMDASH_REFRESH_TOKEN の取得元 (90日で失効)
@@ -82,7 +81,7 @@ pnpm run deploy   # `pnpm deploy` はpnpm組み込みcommandなので使わな�
 1. `/_emdash/admin` で初期Adminを作成する。
 2. Settings → Emailで `cloudflare-email` がproviderになっていることを確認し、test emailを送る。差出人は `astro.config.mjs` の `cloudflareEmail({ from })`。
 3. Admin → Cloudflare AI Searchでposts / pages / activitiesを選び、Sync All Contentを実行する。
-4. Admin → GitHub Exportでrepository (`owner/name`) とbranchを設定する。PAT入力欄は存在しない。
+4. Admin → GitHub Syncでrepository (`owner/name`)、fine-grained PAT (このrepositoryのContents read/writeのみ)、branchを設定し、Export allを実行する。
 5. Admin → Translatorでmodelと任意のAI Gateway IDを確認する。
 
 ## Rate limits
@@ -104,7 +103,7 @@ pnpm exec wrangler ai-search stats inaridiy-content
 構造化log event / prefix:
 
 - `search_rate_limit_failed` / `ai_search_request_failed` / `fts_search_failed`
-- `[ai-search]` (EmDash aiSearch plugin)、`auto-translator:`、`newsletter:`、`github-export:`
+- `[ai-search]` (EmDash aiSearch plugin)、`auto-translator:`、`newsletter:`、`github-sync:`
 - `EmDash <hook> hook error: Hook timeout after 5000ms` は多くが `aiSearch()` のhook。自作pluginのhookはそれより先に走る (README「検索とRate Limiting」)。
 
 ### Email
@@ -129,4 +128,4 @@ pnpm exec wrangler ai-search stats inaridiy-content
 
 ### Secret rotation
 
-GitHub PATをrotateしたら `wrangler secret put GITHUB_EXPORT_TOKEN` を再実行してdeployする。plugin KVへtokenを戻さない。Admin settings readは旧plaintext keyを継続的に削除する。
+GitHub PATをrotateしたら、Admin → GitHub Syncのtoken欄に新しい値を入力して保存する (deploy不要)。

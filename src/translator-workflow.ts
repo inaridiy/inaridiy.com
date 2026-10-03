@@ -19,8 +19,8 @@ import {
  * afterSave/afterPublish hook enqueues one instance per changed entry;
  * every model call is its own retryable step, and the entry is only
  * touched through the plugin's `plan`/`complete` callback routes (via the
- * SELF service binding), so content writes stay inside the plugin bridge
- * and re-fire the search-sync/github-export hooks with fresh `*_en`.
+ * SELF service binding), so the English entry is written inside the plugin
+ * bridge and its own content hooks (aiSearch, cache purge) fire normally.
  *
  * The hooks themselves must stay this thin: hook chains run in the
  * request's waitUntil, which Workers cancels ~30s after the response.

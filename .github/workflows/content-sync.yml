@@ -1,16 +1,17 @@
 # git -> CMS content sync.
 #
-# The reverse direction (CMS -> git) is EVENT-DRIVEN: the github-export
-# plugin commits Markdown to this repo the moment a post changes, with a
-# "[cms-sync]" marker in the commit message. This workflow skips those
-# commits (already in sync) and pushes every other content/** change to
-# the CMS. The manual pull job is a recovery tool, not a schedule.
+# The reverse direction (CMS -> git) is EVENT-DRIVEN: the github-sync
+# plugin (plugins/github-sync) commits Markdown to this repo the moment an
+# entry changes, with a "[cms-sync]" marker in the commit message. This
+# workflow skips those commits (already in sync) and pushes every other
+# content/** change to the CMS with the plugin's CLI. The manual pull job is
+# a recovery tool, not a schedule.
 #
 # Required repository secrets:
-#   EMDASH_URL            e.g. https://inaridiy.com
-#   EMDASH_REFRESH_TOKEN  from ~/.config/emdash/auth.json after
-#                         `npx emdash login --url <EMDASH_URL>`
-#                         (valid 90 days — re-login when it expires)
+#   EMDASH_URL    e.g. https://inaridiy.com
+#   EMDASH_TOKEN  API token from the EmDash admin (content:read,
+#                 content:write, schema:read). EMDASH_REFRESH_TOKEN (from
+#                 `emdash login`, valid 90 days) still works as a fallback.
 name: content-sync
 
 on:
@@ -46,9 +47,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/content-sync.mjs push
+      - run: pnpm content:push
         env:
           EMDASH_URL: ${{ secrets.EMDASH_URL }}
+          EMDASH_TOKEN: ${{ secrets.EMDASH_TOKEN }}
           EMDASH_REFRESH_TOKEN: ${{ secrets.EMDASH_REFRESH_TOKEN }}
       - name: Commit CMS identity metadata
         run: |
@@ -74,9 +76,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/content-sync.mjs pull
+      - run: pnpm content:pull
         env:
           EMDASH_URL: ${{ secrets.EMDASH_URL }}
+          EMDASH_TOKEN: ${{ secrets.EMDASH_TOKEN }}
           EMDASH_REFRESH_TOKEN: ${{ secrets.EMDASH_REFRESH_TOKEN }}
       - name: Commit CMS edits
         run: |
