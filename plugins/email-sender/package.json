@@ -10,6 +10,6 @@
 		"./queue": "./src/queue.ts"
 	},
 	"peerDependencies": {
-		"emdash": "^0.28.1"
+		"emdash": "^1.1.0"
 	}
 }

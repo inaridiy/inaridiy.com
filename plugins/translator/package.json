@@ -13,6 +13,6 @@
 		"@inaridiy/content-contract": "workspace:*"
 	},
 	"peerDependencies": {
-		"emdash": "^0.28.1"
+		"emdash": "^1.1.0"
 	}
 }

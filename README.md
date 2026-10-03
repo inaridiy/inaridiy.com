@@ -24,14 +24,14 @@ Node.js 24とpnpm 11を使用する。
 
 ```bash
 pnpm install
-npx emdash dev
+pnpm dev
 ```
 
 - サイト: `http://localhost:4321`
 - 管理画面: `http://localhost:4321/_emdash/admin`
 - 開発ログイン: `http://localhost:4321/_emdash/api/setup/dev-bypass?redirect=/_emdash/admin`
 
-`emdash dev` はmigration、seed、EmDash型生成を行う。Worker Binding型を更新するときは `pnpm exec wrangler types` を実行する。実環境の作成、Secret、初回deployは [docs/operations.md](docs/operations.md) を参照。
+`pnpm dev`（`astro dev`）はローカルD1を使い、初回リクエスト時にmigrationとseedのschema適用を行う。EmDash型 (`emdash-env.d.ts`) は起動時に生成される。Worker Binding型を更新するときは `pnpm exec wrangler types` を実行する。実環境の作成、Secret、初回deployは [docs/operations.md](docs/operations.md) を参照。
 
 ## コマンド
 
@@ -49,7 +49,7 @@ pnpm deploy               # build + wrangler deploy
 
 ## 手動確認
 
-変更後はまず `pnpm check` を通し、`npx emdash dev` で次を確認する。
+変更後はまず `pnpm check` を通し、`pnpm dev` で次を確認する。
 
 1. `/`、`/posts`、記事詳細、`/activities`、`/about` が表示される。
 2. 対応する `/en/` ページで英訳が使われ、未翻訳時は現在の日本語へfallbackする。

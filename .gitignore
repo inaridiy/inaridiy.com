@@ -22,3 +22,6 @@ CLAUDE.md
 .mcp.json
 .cursor/
 .vscode/mcp.json
+
+# Build-time EmDash migration manifest
+.emdash/

@@ -8,8 +8,6 @@ packages:
 allowBuilds:
   esbuild: true
   workerd: true
-  # Needed by `emdash dev` for the local SQLite database
-  better-sqlite3: true
   sharp: false
 
 # Supply-chain hardening: cooldown on brand-new releases (EmDash exempt)
