@@ -17,18 +17,16 @@
 	// Trust contract. Changing it requires a new major version.
 	"capabilities": ["content:read", "schema:read", "network:request"],
 	"allowedHosts": ["api.github.com"],
-	"storage": {},
+	"storage": {
+		// Committed path per entry, for renames and deletes.
+		"files": { "indexes": ["path"] }
+	},
 
 	"admin": {
 		"pages": [{ "path": "/settings", "label": "GitHub Sync", "icon": "git-branch" }],
 		"settingsSchema": {
-			"repo": { "type": "string", "label": "Repository" },
-			"token": { "type": "secret", "label": "GitHub token" },
-			"branch": { "type": "string", "label": "Branch", "default": "main" },
-			"dir": { "type": "string", "label": "Folder", "default": "content" },
-			"collections": { "type": "string", "label": "Collections" },
-			"includeDrafts": { "type": "boolean", "label": "Include drafts", "default": false },
-			"enabled": { "type": "boolean", "label": "Enabled", "default": true }
+			// Encrypted at rest. The other settings live in one "config" key.
+			"token": { "type": "secret", "label": "GitHub token" }
 		}
 	},
 

@@ -31,7 +31,7 @@ The body is your **rich text**, as Markdown.
 1. **Install** GitHub Sync from **Plugins → Registry** in the EmDash admin.
 2. **Create a token** on GitHub: a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with access to one repository and **Contents: Read and write**.
 3. **Connect** in **GitHub Sync** (admin sidebar): enter the repository (`owner/name`) and the token, then **Save**.
-4. Select **Export all** to write your existing content in one commit.
+4. Select **Export all** to write your existing content. It runs in the background, one commit per batch each minute; the page shows the progress.
 
 From now on, every change is committed to `content/<collection>/<slug>.md`.
 
