@@ -8,8 +8,17 @@ import emdashWorker, {
 
 const emdashScheduled = createScheduledHandler();
 
-/** Canonical host — requests on *.workers.dev are 301'd here. */
-const CANONICAL_HOST = "inaridiy.com";
+/**
+ * Canonical host. Requests on the old domain (inaridiy.com, still attached
+ * to this Worker as a custom domain) and *.workers.dev are redirected here
+ * with path and query intact.
+ */
+const CANONICAL_HOST = "inari.diy";
+const LEGACY_HOSTS = new Set(["inaridiy.com", "www.inaridiy.com"]);
+
+function isLegacyHost(hostname: string): boolean {
+	return LEGACY_HOSTS.has(hostname) || hostname.endsWith(".workers.dev");
+}
 
 const worker = {
 	...emdashWorker,
@@ -19,10 +28,13 @@ const worker = {
 		ctx: ExecutionContext,
 	) {
 		const url = new URL(request.url);
-		if (url.hostname.endsWith(".workers.dev")) {
+		if (isLegacyHost(url.hostname)) {
+			url.protocol = "https:";
 			url.hostname = CANONICAL_HOST;
 			url.port = "";
-			return Response.redirect(url.toString(), 301);
+			// 308 keeps the method and body for API clients still on the old URL
+			const status = request.method === "GET" || request.method === "HEAD" ? 301 : 308;
+			return Response.redirect(url.toString(), status);
 		}
 		const emdashFetch = emdashWorker.fetch;
 		if (!emdashFetch) throw new Error("EmDash Worker did not export a fetch handler");

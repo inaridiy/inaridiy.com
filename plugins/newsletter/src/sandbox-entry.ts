@@ -12,8 +12,8 @@ import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
  * is complete only after every eligible subscriber has a terminal state.
  */
 
-const SITE_URL = "https://inaridiy.com";
-const SITE_NAME = "inaridiy.com";
+const SITE_URL = "https://inari.diy";
+const SITE_NAME = "inari.diy";
 const CAMPAIGN_CRON = "newsletter-dispatch";
 const CAMPAIGN_SCHEDULE = "*/5 * * * *";
 const SUBSCRIBER_PAGE_SIZE = 50;

@@ -1,6 +1,6 @@
-# inaridiy.com
+# inari.diy
 
-[EmDash](https://emdashcms.com) と Astro で構築した、HackerNews風のテキスト中心ブログ。Cloudflare Workers上でSSRし、D1、R2、Workers AI、AI Search、Workflows、Email SendingをBinding経由で利用する。日本語が原文で、英語版はEmDash native i18nの翻訳entryとして `/en/` 以下に出し、未翻訳なら日本語へfallbackする。
+[EmDash](https://emdashcms.com) と Astro で構築した、HackerNews風のテキスト中心ブログ (https://inari.diy)。Cloudflare Workers上でSSRし、D1、R2、Workers AI、AI Search、Workflows、Email SendingをBinding経由で利用する。日本語が原文で、英語版はEmDash native i18nの翻訳entryとして `/en/` 以下に出し、未翻訳なら日本語へfallbackする。
 
 ## 概要
 

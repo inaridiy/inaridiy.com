@@ -124,7 +124,7 @@ export function pageToMarkdown(page: PageEntry, origin: string, path: string): s
 /** Shared header for /llms.txt and /llms-full.txt (llms.txt convention). */
 export function llmsHeader(siteTitle: string, siteTagline: string): string {
 	return [
-		"# inaridiy.com",
+		"# inari.diy",
 		"",
 		`> ${oneLine(siteTitle)} — inaridiy の個人技術ブログ。${oneLine(siteTagline)}。日本語が原文で、/en 以下に LLM による自動英訳ミラーがあります。`,
 		"",

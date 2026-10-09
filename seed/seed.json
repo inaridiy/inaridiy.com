@@ -2,12 +2,12 @@
 	"$schema": "https://emdashcms.com/seed.schema.json",
 	"version": "1",
 	"meta": {
-		"name": "inaridiy.com",
+		"name": "inari.diy",
 		"description": "Personal blog of inaridiy: posts, profile, and activity log",
 		"author": "inaridiy"
 	},
 	"settings": {
-		"title": "inaridiy.com",
+		"title": "inari.diy",
 		"tagline": "Web と暗号とものづくりの記録"
 	},
 	"collections": [

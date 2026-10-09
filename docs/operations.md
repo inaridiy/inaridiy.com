@@ -6,7 +6,8 @@ Cloudflare resourceの初回作成、Secret、deploy、復旧手順。コマン�
 
 - Node.js 24 / pnpm 11
 - Wranglerで対象Cloudflare accountへlogin済み
-- `inaridiy.com` がWorkers、Email Sendingで利用可能
+- `inari.diy` (正規ドメイン) と `inaridiy.com` (旧ドメイン) がWorker `inaridiy-com` のCustom Domain。旧ドメインと `*.workers.dev` は `src/worker.ts` が `https://inari.diy` へpathを保ったまま301/308する
+- Email Sendingは `inari.diy` でonboard済み。差出人は `noreply@inari.diy`
 - GitHub fine-grained PATはこのrepositoryのContents read/writeだけを許可
 
 ## First provision
@@ -43,7 +44,7 @@ pnpm exec wrangler secret put EMDASH_ENCRYPTION_KEY
 | `EMDASH_URL` / `EMDASH_TOKEN` | `content-sync.yml`。`EMDASH_TOKEN` はAdminで作るAPI token (content:read, content:write, schema:read)。`EMDASH_REFRESH_TOKEN` (90日) もfallbackとして読む |
 
 ```bash
-npx emdash login --url https://inaridiy.com # EMDASH_REFRESH_TOKEN の取得元 (90日で失効)
+npx emdash login --url https://inari.diy # EMDASH_REFRESH_TOKEN の取得元 (90日で失効)
 ```
 
 Cloudflare API tokenはGitHubに置かない。deployはCloudflare Workers Buildsが行う (次節)。

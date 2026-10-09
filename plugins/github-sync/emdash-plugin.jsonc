@@ -7,7 +7,7 @@
 	"publisher": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
 
 	"license": "MIT",
-	"author": { "name": "inaridiy", "url": "https://inaridiy.com" },
+	"author": { "name": "inaridiy", "url": "https://inari.diy" },
 	"security": { "url": "https://github.com/inaridiy/inaridiy.com/security/advisories/new" },
 	"name": "GitHub Sync",
 	"description": "Keep your content in a GitHub repo as Markdown: every change is committed instantly, and git pushes can flow back.",

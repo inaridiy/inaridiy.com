@@ -13,7 +13,7 @@ import emdash from "emdash/astro";
 // Canonical origin. The Worker is also reachable on *.workers.dev; without
 // this, EmDash derives auth/email/redirect URLs from the request origin.
 // Dev keeps localhost (passkeys/device flow would break otherwise).
-const SITE_URL = "https://inaridiy.com";
+const SITE_URL = "https://inari.diy";
 const isDev = process.argv.includes("dev");
 
 // Edge TTL for public HTML (Cloudflare-CDN-Cache-Control; browsers get
@@ -68,7 +68,7 @@ export default defineConfig({
 				cachePurgePlugin(),
 				// Email Sending through the `EMAIL` send_email binding. Retries for
 				// newsletter mail live in the newsletter outbox.
-				cloudflareEmail({ from: { email: "noreply@inaridiy.com", name: "inaridiy.com" } }),
+				cloudflareEmail({ from: { email: "noreply@inari.diy", name: "inari.diy" } }),
 			],
 			// GitHub Sync is published to the plugin registry; this site runs the
 			// workspace build in the same sandbox registry installs use.

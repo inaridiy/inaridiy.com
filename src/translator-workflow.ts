@@ -26,7 +26,7 @@ import {
  * request's waitUntil, which Workers cancels ~30s after the response.
  */
 
-const CANONICAL_ORIGIN = "https://inaridiy.com";
+const CANONICAL_ORIGIN = "https://inari.diy";
 
 /** Finish reasons that will not improve on retry. */
 const PERMANENT_FINISH_REASONS = new Set(["content_filter", "safety", "length", "max_tokens"]);

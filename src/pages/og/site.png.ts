@@ -14,8 +14,8 @@ export const GET: APIRoute = async ({ cache }) => {
 	return renderOgCard({
 		title: siteTitle,
 		// Avoid repeating the heading when the site title IS the domain
-		left: siteTitle === "inaridiy.com" ? (siteTagline ?? "") : "inaridiy.com",
-		right: siteTitle === "inaridiy.com" ? undefined : siteTagline || undefined,
+		left: siteTitle === "inari.diy" ? (siteTagline ?? "") : "inari.diy",
+		right: siteTitle === "inari.diy" ? undefined : siteTagline || undefined,
 		titleSize: 84,
 	});
 };

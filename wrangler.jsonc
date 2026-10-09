@@ -60,12 +60,12 @@
 			"namespace": "default",
 		},
 	],
-	// Cloudflare Email Sending (inaridiy.com is onboarded). EmDash's
+	// Cloudflare Email Sending (inari.diy is onboarded). EmDash's
 	// cloudflareEmail() provider (astro.config.mjs) sends through it.
 	"send_email": [
 		{
 			"name": "EMAIL",
-			"allowed_sender_addresses": ["noreply@inaridiy.com"],
+			"allowed_sender_addresses": ["noreply@inari.diy"],
 		},
 	],
 	// Cloudflare Rate Limiting bindings are per-location abuse controls. The

@@ -8,7 +8,7 @@
 # a recovery tool, not a schedule.
 #
 # Required repository secrets:
-#   EMDASH_URL    e.g. https://inaridiy.com
+#   EMDASH_URL    e.g. https://inari.diy
 #   EMDASH_TOKEN  API token from the EmDash admin (content:read,
 #                 content:write, schema:read). EMDASH_REFRESH_TOKEN (from
 #                 `emdash login`, valid 90 days) still works as a fallback.
