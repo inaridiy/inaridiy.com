@@ -5,7 +5,6 @@ import emdashWorker, {
 	PluginBridge,
 	createScheduledHandler,
 } from "@emdash-cms/cloudflare/worker";
-import { cache } from "cloudflare:workers";
 
 const emdashScheduled = createScheduledHandler();
 
@@ -23,21 +22,6 @@ const LEGACY_HOSTS = new Set(["inaridiy.com", "www.inaridiy.com"]);
 
 function isLegacyHost(hostname: string): boolean {
 	return LEGACY_HOSTS.has(hostname) || hostname.endsWith(".workers.dev");
-}
-
-// TEMPORARY (2026-10-09): the first inari.diy deploy cached legacy-host
-// redirects under inari.diy keys. Purge the edge cache once, then remove this.
-const PURGE_MARKER = "ops:purge-everything:2026-10-09-domain-move";
-
-async function purgePoisonedRedirectsOnce(env: Env): Promise<void> {
-	try {
-		if (await env.CACHE.get(PURGE_MARKER)) return;
-		const result = await cache.purge({ purgeEverything: true });
-		console.log("domain-move purge", JSON.stringify(result));
-		if (result.success) await env.CACHE.put(PURGE_MARKER, new Date().toISOString());
-	} catch (error) {
-		console.error("domain-move purge failed", error);
-	}
 }
 
 const worker = {
@@ -65,7 +49,6 @@ const worker = {
 	},
 	scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
 		emdashScheduled(controller, env, ctx);
-		ctx.waitUntil(purgePoisonedRedirectsOnce(env));
 	},
 } satisfies ExportedHandler<Env, unknown>;
 
