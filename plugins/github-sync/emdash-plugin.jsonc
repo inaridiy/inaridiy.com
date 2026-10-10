@@ -2,9 +2,9 @@
 	"$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
 
 	"slug": "github-sync",
-	// Replace with the publisher's Atmosphere DID before the first release
-	// (`emdash-plugin whoami`). Publishing refuses a DID that is not yours.
-	"publisher": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+	// @inari.diy (Cirrus PDS at pds.inari.diy). Publishing refuses a DID
+	// that is not the logged-in session's.
+	"publisher": "did:plc:lcnkdxpf5pe34fupaupkqwnd",
 
 	"license": "MIT",
 	"author": { "name": "inaridiy", "url": "https://inari.diy" },
