@@ -154,7 +154,7 @@ EmDashの全メールはEmDash公式 `cloudflareEmail()` providerがEmail Sendin
 - CMS → git: plugin。fine-grained PAT (このrepositoryのContents read/writeのみ) はAdmin → GitHub Syncで入力し、`EMDASH_ENCRYPTION_KEY` で暗号化して保存される。
 - git → CMS: 同packageのCLI (`pnpm content:push` / `content:pull`)。`.github/workflows/content-sync.yml` から実行する。
 - file形式はcollection schemaから導出する (scalar fieldはfrontmatter、最初のPortable Text fieldが本文)。`tests/markdown-format.test.mjs` が既存の `content/**` をbyte単位で再現できることを固定している。
-- 公開手順はplugin側の `README.md` と `emdash-plugin.jsonc` (publisherのDIDを設定してから `emdash-plugin publish`)。
+- registryでは `@inari.diy/github-sync` として公開している。publisherは自前PDS `pds.inari.diy` (Cirrus、別repo `~/pds.inari.diy`) 上の `did:plc:lcnkdxpf5pe34fupaupkqwnd`。新しいversionは `package.json` のversionを上げ、`plugins/github-sync` で `pnpm exec emdash-plugin login inari.diy` (sessionが切れている場合のみ) → `pnpm exec emdash-plugin publish`。release versionはimmutable。
 
 ## UI / Styling
 
