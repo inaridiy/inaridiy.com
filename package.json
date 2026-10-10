@@ -26,10 +26,10 @@
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.3",
     "@astrojs/react": "^7.0.0",
-    "@emdash-cms/cloudflare": "^1.1.0",
+    "@emdash-cms/cloudflare": "^1.2.0",
     "@inaridiy/content-contract": "workspace:*",
     "astro": "^7.3.5",
-    "emdash": "^1.1.0",
+    "emdash": "^1.2.0",
     "emdash-plugin-cache-purge": "workspace:*",
     "emdash-plugin-github-sync": "workspace:*",
     "emdash-plugin-newsletter": "workspace:*",

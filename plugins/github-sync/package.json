@@ -48,14 +48,14 @@
 		"release:setup": "emdash-plugin release setup"
 	},
 	"peerDependencies": {
-		"emdash": "^1.1.0"
+		"emdash": "^1.2.0"
 	},
 	"devDependencies": {
-		"@emdash-cms/blocks": "1.1.0",
-		"@emdash-cms/plugin-cli": "0.13.2",
-		"@emdash-cms/plugin-test": "0.2.7",
+		"@emdash-cms/blocks": "1.2.0",
+		"@emdash-cms/plugin-cli": "0.13.3",
+		"@emdash-cms/plugin-test": "0.2.8",
 		"@types/node": "^26.1.1",
-		"emdash": "^1.1.0",
+		"emdash": "^1.2.0",
 		"esbuild": "^0.28.1",
 		"typescript": "^5.9.0",
 		"vitest": "^4.1.0"
